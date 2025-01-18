@@ -1,13 +1,37 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const nav = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Handle login logic
-    console.log('Logging in with:', email, password);
+    try {
+        const response = await fetch('http://localhost:3000/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            username: email,
+            password: password,
+          }),
+        });
+  
+        const data = await response.json();
+  
+        if (response.ok) {
+          alert('Login successful:');
+          nav('/userdash');
+        } else {
+          alert(data.message || 'Login failed');
+        }
+      } catch (err) {
+        console.error('Error:', err);
+        alert('Error logging in. Please try again later.');
+      }
   };
 
   return (

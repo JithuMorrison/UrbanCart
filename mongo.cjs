@@ -84,10 +84,18 @@ app.post('/order', async (req, res) => {
   });
 
 
-app.get('/users', async (req, res) => {
+app.post('/users', async (req, res) => {
+    const { username, password } = req.body;
     try {
-      const users = await User.find();
-      res.status(200).json(users);
+        const user = await User.findOne({ email: username });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+          }
+        if (user.password !== password) {
+        return res.status(400).json({ message: 'Invalid credentials' });
+        }
+        const { password: _, ...userData } = user.toObject();
+        res.status(200).json(userData);
     } catch (err) {
       res.status(400).json({ message: 'Error fetching users', error: err });
     }

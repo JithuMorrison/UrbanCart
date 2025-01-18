@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -8,6 +9,8 @@ const RegisterPage = () => {
     confirmPassword: '',
   });
 
+  const nav = useNavigate();
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({
@@ -16,13 +19,44 @@ const RegisterPage = () => {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!');
-    } else {
-      // Handle registration logic here
-      console.log('Registering with:', formData);
+        alert('Passwords do not match!');
+        return;
+      }
+  
+      // Prepare user data
+      const userData = {
+        username: formData.name,
+        email: formData.email,
+        password: formData.password,
+        orders: [], // You can pass an empty array or actual orders
+        cart: [],   // You can pass an empty array or actual cart items
+      };
+  
+      // Send a POST request to your backend API
+      try {
+        const response = await fetch('http://localhost:3000/user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(userData),
+        });
+  
+        if (response.ok) {
+          const data = await response.json();
+          console.log('User registered successfully:', data);
+          nav('/login');
+        } else {
+          const error = await response.json();
+          console.error('Error registering user:', error);
+          alert('Error registering user');
+        }
+      } catch (err) {
+        console.error('Request failed:', err);
+        alert('Error during registration');
     }
   };
 
