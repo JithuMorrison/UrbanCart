@@ -6,6 +6,7 @@ import Homepg from './homepg'
 import Footer from './footer'
 import UserDashboard from './userdash'
 import AdminDashboard from './admindash'
+import LoginPage from './login';
 
 function App() {
   const [count, setCount] = useState(0)
@@ -17,6 +18,7 @@ function App() {
         <Route path="/" element={<Homepg />} />
         <Route path="/userdash" element={<UserDashboard />} />
         <Route path="/admindash" element={<AdminDashboard />} />
+        <Route path='/login' element={<LoginPage/>} />
       </Routes>
       <Footer />
     </Router>
