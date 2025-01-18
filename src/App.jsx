@@ -7,6 +7,7 @@ import Footer from './footer'
 import UserDashboard from './userdash'
 import AdminDashboard from './admindash'
 import LoginPage from './login';
+import RegisterPage from './register';
 
 function App() {
   const [count, setCount] = useState(0)
@@ -19,6 +20,7 @@ function App() {
         <Route path="/userdash" element={<UserDashboard />} />
         <Route path="/admindash" element={<AdminDashboard />} />
         <Route path='/login' element={<LoginPage/>} />
+        <Route path='/register' element={<RegisterPage/>} />
       </Routes>
       <Footer />
     </Router>
