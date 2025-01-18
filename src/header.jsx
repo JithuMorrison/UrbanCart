@@ -13,16 +13,11 @@ function Header() {
         <li><a href="/#shop" className="hover:text-gray-300">Shop</a></li>
         <li><a href="/#about" className="hover:text-gray-300">About</a></li>
         <li><a href="/#contact" className="hover:text-gray-300">Contact</a></li>
-        <li><a href="/login" className="hover:text-gray-300 items-center space-x-2">
+        <li><a href="/#cart" className="hover:text-gray-300 items-center space-x-2">
           <i className="fa fa-shopping-cart"></i>
         </a></li>
-        <li><a href="/userdash" className="hover:text-gray-300 flex items-center space-x-2">
-          <i className="fa fa-user"></i>
-          <span>User</span>
-        </a></li>
-        <li><a href="/admindash" className="hover:text-gray-300 flex items-center space-x-2">
-          <i className="fa fa-user"></i>
-          <span>Admin</span>
+        <li className='bg-white w-[30px] h-[30px] rounded-full -mt-1'><a href="/login" className="text-gray-500 hover:text-gray-300 items-center space-x-2">
+          <i className="fa fa-user mt-1"></i>
         </a></li>
       </ul>
     </nav>

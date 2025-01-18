@@ -1,4 +1,5 @@
 import React from 'react';
+import 'font-awesome/css/font-awesome.min.css';
 
 function Footer() {
   return (
@@ -13,13 +14,13 @@ function Footer() {
           <p className="text-sm">Follow us on:</p>
           <div className="flex justify-center space-x-4 mt-2">
             <a href="https://facebook.com" className="text-gray-300 hover:text-blue-500">
-              <i className="fab fa-facebook-f"></i>
+              <i className="fa fa-facebook-f"></i>
             </a>
             <a href="https://twitter.com" className="text-gray-300 hover:text-blue-400">
-              <i className="fab fa-twitter"></i>
+              <i className="fa fa-twitter"></i>
             </a>
             <a href="https://instagram.com" className="text-gray-300 hover:text-pink-500">
-              <i className="fab fa-instagram"></i>
+              <i className="fa fa-instagram"></i>
             </a>
           </div>
         </div>

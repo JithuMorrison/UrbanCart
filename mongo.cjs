@@ -41,6 +41,7 @@ const productSchema = new mongoose.Schema({
   quantity: { type: Number, required: true },
   price: { type: Number, required: true },
   discount: { type: Number, default: 0 },
+  image: {type: String},
 });
 
 const Order = mongoose.model('Order',userSchema);
@@ -60,8 +61,8 @@ app.post('/user', async (req, res) => {
 });
 
 app.post('/product', async (req, res) => {
-  const { productName, quantity, price, discount } = req.body;
-  const newProduct = new Product({ productName, quantity, price, discount });
+  const { productName, quantity, price, discount,image } = req.body;
+  const newProduct = new Product({ productName, quantity, price, discount,image });
 
   try {
     await newProduct.save();

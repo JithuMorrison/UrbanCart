@@ -24,7 +24,12 @@ const LoginPage = () => {
   
         if (response.ok) {
           alert('Login successful:');
-          nav('/userdash');
+          if(data.username=='jithu'){
+            nav('/admindash');
+          }
+          else{
+            nav('/userdash');
+          }
         } else {
           alert(data.message || 'Login failed');
         }

@@ -28,42 +28,11 @@ const UserDashboard = () => {
     fetchProducts();
   }, []);
 
-  const handleAddProduct = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await fetch("http://localhost:3000/product", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newProduct),
-      });
-      const data = await response.json();
-      setProducts([...products, data]); // Add the new product to the list of products
-      setNewProduct({
-        productName: "",
-        quantity: 0,
-        price: 0,
-        discount: 0,
-      }); // Reset product form
-    } catch (err) {
-      console.error("Error adding product:", err);
-    }
-  };
-
   // Handle form input changes for profile update
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({
       ...formData,
-      [name]: value,
-    });
-  };
-
-  const handleNewProductChange = (e) => {
-    const { name, value } = e.target;
-    setNewProduct({
-      ...newProduct,
       [name]: value,
     });
   };
@@ -177,49 +146,6 @@ const UserDashboard = () => {
             ))}
           </tbody>
         </table>
-
-        {/* Add New Product Form */}
-        <h3 className="text-lg font-semibold mt-4">Add New Product</h3>
-        <form onSubmit={handleAddProduct} className="space-y-4">
-          <input
-            type="text"
-            name="productName"
-            value={newProduct.productName}
-            onChange={handleNewProductChange}
-            placeholder="Product Name"
-            className="border p-2 w-full rounded"
-          />
-          <input
-            type="number"
-            name="quantity"
-            value={newProduct.quantity}
-            onChange={handleNewProductChange}
-            placeholder="Quantity"
-            className="border p-2 w-full rounded"
-          />
-          <input
-            type="number"
-            name="price"
-            value={newProduct.price}
-            onChange={handleNewProductChange}
-            placeholder="Price"
-            className="border p-2 w-full rounded"
-          />
-          <input
-            type="number"
-            name="discount"
-            value={newProduct.discount}
-            onChange={handleNewProductChange}
-            placeholder="Discount"
-            className="border p-2 w-full rounded"
-          />
-          <button
-            type="submit"
-            className="bg-green-500 text-white px-4 py-2 rounded"
-          >
-            Add Product
-          </button>
-        </form>
       </section>
     </div>
   );

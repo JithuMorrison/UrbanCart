@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // Dummy data for products
 const initialProducts = [
@@ -8,22 +8,47 @@ const initialProducts = [
 ];
 
 const AdminDashboard = () => {
+  const [userData, setUserData] = useState({ name: "John Doe", email: "john.doe@example.com", address: "123 Main St, Springfield", password: "password123" });
+  const [formData, setFormData] = useState({name: "", email: "", address: "", password: "", });
+
   const [products, setProducts] = useState(initialProducts);
-  const [formData, setFormData] = useState({ name: '', price: '', quantity: '', discount: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', price: 0, quantity: 0, discount: 0 });
+
+  useEffect(() => {
+      const fetchProducts = async () => {
+        try {
+          const response = await fetch("http://localhost:3000/products");
+          const data = await response.json();
+          setProducts(data);
+        } catch (err) {
+          console.error("Error fetching products:", err);
+        }
+      };
+      fetchProducts();
+    }, []);
   
-  // Add a new product
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const newProduct = {
-      id: products.length + 1,
-      name: formData.name,
-      price: parseFloat(formData.price),
-      quantity: parseInt(formData.quantity),
-      discount: parseInt(formData.discount),
+    const handleAddProduct = async (e) => {
+      e.preventDefault();
+      try {
+        const response = await fetch("http://localhost:3000/product", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(newProduct),
+        });
+        const data = await response.json();
+        setProducts([...products, data]); // Add the new product to the list of products
+        setNewProduct({
+          productName: "",
+          quantity: 0,
+          price: 0,
+          discount: 0,
+        }); // Reset product form
+      } catch (err) {
+        console.error("Error adding product:", err);
+      }
     };
-    setProducts([...products, newProduct]);
-    setFormData({ name: '', price: '', quantity: '', discount: '' });
-  };
 
   // Update product details
   const handleUpdate = (id, field, value) => {
@@ -34,97 +59,85 @@ const AdminDashboard = () => {
     );
   };
 
+  const handleNewProductChange = (e) => {
+    const { name, value } = e.target;
+    setNewProduct({
+      ...newProduct,
+      [name]: value,
+    });
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
-      
-      {/* Add Product Form */}
-      <form onSubmit={handleSubmit} className="mb-6 p-4 border border-gray-300 rounded-lg">
-        <h2 className="text-xl font-semibold mb-2">Add New Product</h2>
-        <input
-          type="text"
-          placeholder="Product Name"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          className="border p-2 mb-2 w-full rounded"
-        />
-        <input
-          type="number"
-          placeholder="Price"
-          value={formData.price}
-          onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-          className="border p-2 mb-2 w-full rounded"
-        />
-        <input
-          type="number"
-          placeholder="Quantity"
-          value={formData.quantity}
-          onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-          className="border p-2 mb-2 w-full rounded"
-        />
-        <input
-          type="number"
-          placeholder="Discount"
-          value={formData.discount}
-          onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
-          className="border p-2 mb-2 w-full rounded"
-        />
-        <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">Add Product</button>
-      </form>
 
-      {/* Product Table */}
-      <div className="overflow-x-auto bg-white rounded-lg shadow-md">
+      <section className="mb-6 p-4 border border-gray-300 rounded-lg">
+        <h3 className="text-lg font-semibold mt-4">Add New Product</h3>
+        <form onSubmit={handleAddProduct} className="space-y-4">
+          <input
+            type="text"
+            name="productName"
+            value={newProduct.productName}
+            onChange={handleNewProductChange}
+            placeholder="Product Name"
+            className="border p-2 w-full rounded"
+          />
+          <input
+            type="number"
+            name="quantity"
+            value={newProduct.quantity}
+            onChange={handleNewProductChange}
+            placeholder="Quantity"
+            className="border p-2 w-full rounded"
+          />
+          <input
+            type="number"
+            name="price"
+            value={newProduct.price}
+            onChange={handleNewProductChange}
+            placeholder="Price"
+            className="border p-2 w-full rounded"
+          />
+          <input
+            type="number"
+            name="discount"
+            value={newProduct.discount}
+            onChange={handleNewProductChange}
+            placeholder="Discount"
+            className="border p-2 w-full rounded"
+          />
+          <button
+            type="submit"
+            className="bg-green-500 text-white px-4 py-2 rounded"
+          >
+            Add Product
+          </button>
+        </form>
+      </section>
+      
+      <section className="mb-6 p-4 border border-gray-300 rounded-lg">
+        <h2 className="text-xl font-semibold mb-4">Products</h2>
         <table className="w-full table-auto">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 text-left">Product</th>
-              <th className="p-2 text-left">Price</th>
               <th className="p-2 text-left">Quantity</th>
+              <th className="p-2 text-left">Price</th>
               <th className="p-2 text-left">Discount</th>
-              <th className="p-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {products.map((product) => (
-              <tr key={product.id} className="border-b hover:bg-gray-50">
-                <td className="p-2">{product.name}</td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={product.price}
-                    onChange={(e) => handleUpdate(product.id, 'price', e.target.value)}
-                    className="border p-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={product.quantity}
-                    onChange={(e) => handleUpdate(product.id, 'quantity', e.target.value)}
-                    className="border p-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <input
-                    type="number"
-                    value={product.discount}
-                    onChange={(e) => handleUpdate(product.id, 'discount', e.target.value)}
-                    className="border p-1 rounded"
-                  />
-                </td>
-                <td className="p-2">
-                  <button
-                    onClick={() => alert(`Editing ${product.name}`)}
-                    className="bg-yellow-500 text-white px-3 py-1 rounded"
-                  >
-                    Edit
-                  </button>
-                </td>
+              <tr key={product._id} className="border-b hover:bg-gray-50">
+                <td className="p-2">{product.productName}</td>
+                <td className="p-2">{product.quantity}</td>
+                <td className="p-2">${product.price}</td>
+                <td className="p-2">{product.discount}%</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </section>
     </div>
   );
 };
