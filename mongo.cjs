@@ -87,9 +87,9 @@ app.post('/order', async (req, res) => {
 
 
 app.post('/users', async (req, res) => {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
     try {
-        const user = await User.findOne({ email: username });
+        const user = await User.findOne({ email: email });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
           }
@@ -102,6 +102,21 @@ app.post('/users', async (req, res) => {
       res.status(400).json({ message: 'Error fetching users', error: err });
     }
   });
+
+app.post('/users_id', async (req, res) => {
+  const { id } = req.body;
+  try {
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const { password: _, ...userData } = user.toObject();
+    res.status(200).json(userData);
+  } catch (err) {
+    res.status(400).json({ message: 'Error fetching user', error: err });
+  }
+});
+  
   
 app.get('/products', async (req, res) => {
     try {

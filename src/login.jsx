@@ -15,7 +15,7 @@ const LoginPage = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            username: email,
+            email: email,
             password: password,
           }),
         });
@@ -24,6 +24,7 @@ const LoginPage = () => {
   
         if (response.ok) {
           alert('Login successful:');
+          localStorage.setItem('userId', data._id);
           if(data.username=='jithu'){
             nav('/admindash');
           }
