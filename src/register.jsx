@@ -32,7 +32,7 @@ const RegisterPage = () => {
         email: formData.email,
         password: formData.password,
         orders: [], // You can pass an empty array or actual orders
-        cart: [],   // You can pass an empty array or actual cart items
+        image: '',   // You can pass an empty array or actual cart items
       };
   
       // Send a POST request to your backend API

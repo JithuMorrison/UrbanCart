@@ -16,25 +16,20 @@ const orderSchema = new mongoose.Schema({order:
     [{
         productName: { type: String, required: true },
         quantityOrdered: { type: Number, required: true },
-        price: { type: Number, required: true }
+        price: { type: Number, required: true },
+        image: {type: String},
   }],
-  orderDate: { type: Date, default: Date.now }
+  orderDate: { type: Date, default: Date.now },
+  status: {type: String},
 });
 
 const userSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    orders: [orderSchema], // Array of orders
-    cart: [
-      {
-        productName: { type: String, required: true },
-        quantity: { type: Number, required: true },
-        price: { type: Number, required: true },
-        discount: { type: Number, default: 0 } // Discount is optional
-      }
-    ] // Array of cart items
-  });
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  orders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
+  image: {type: String},
+});
 
 const productSchema = new mongoose.Schema({
   productName: { type: String, required: true },
@@ -45,13 +40,13 @@ const productSchema = new mongoose.Schema({
   category: {type: String},
 });
 
-const Order = mongoose.model('Order',userSchema);
+const Order = mongoose.model('Order',orderSchema);
 const User = mongoose.model('User', userSchema);
 const Product = mongoose.model('Product', productSchema);
 
 app.post('/user', async (req, res) => {
-  const { username, password, email, orders, cart } = req.body;
-  const newUser = new User({ username, password, email,orders,cart });
+  const { username, password, email, orders, image} = req.body;
+  const newUser = new User({ username, password, email, orders, image });
 
   try {
     await newUser.save();
@@ -73,18 +68,26 @@ app.post('/product', async (req, res) => {
   }
 });
 
-app.post('/order', async (req, res) => {
-    const { order } = req.body;
-    const neworder = new Order({ order });
-  
-    try {
-      await neworder.save();
-      res.status(201).json(neworder);
-    } catch (err) {
-      res.status(400).json({ message: 'Error creating product', error: err });
-    }
-  });
+app.put('/user/:id/order', async (req, res) => {
+  const userId = req.params.id;
+  const { order, status } = req.body;
+  try {
+    const newOrder = new Order({order:order,status:status});
+    await newOrder.save();
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $push: { orders: newOrder._id } },
+      { new: true }
+    ).populate('orders');
 
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json(updatedUser);
+  } catch (err) {
+    res.status(400).json({ message: 'Error adding order to user', error: err });
+  }
+});
 
 app.post('/users', async (req, res) => {
     const { email, password } = req.body;

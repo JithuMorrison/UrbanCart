@@ -5,8 +5,11 @@ const Cart = () => {
   const [user,setUser] = useState(() => {
     const useer = localStorage.getItem("userId");
     return useer;
-  }
-  );
+  });
+  const [username,setUsername] = useState(() => {
+    const useer = localStorage.getItem("username");
+    return useer;
+  });
 
   useEffect(() => {
     const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
@@ -23,13 +26,49 @@ const Cart = () => {
     localStorage.setItem('cart', JSON.stringify(updatedCart));
   };
 
-  const handleOrder = () => {
-    alert(user);
-  }
+  const handleCheckout = async () => {
+    if(user){
+        const order = cart.map(item => ({
+            productName: item.name,
+            quantityOrdered: item.quantity,
+            price: item.priceAfterDiscount,
+            image: item.image,
+          }));
+      
+        try {
+            const response = await fetch(`http://localhost:3000/user/${user}/order`, {
+                method: 'PUT',
+                headers: {
+                'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    order: order,
+                    status: 'placed'
+                }),
+            });
+    
+        const data = await response.json();
+    
+        if (response.ok) {
+            alert('Order placed successfully!');
+            localStorage.removeItem('cart');
+            setCart([]);
+        } else {
+            alert('Error placing order:', data.message || 'Please try again');
+        }
+        } catch (err) {
+        console.error('Error:', err);
+        alert('There was an error processing your order');
+        }
+    }
+  };
 
   return (
     <div className="bg-gray-100 min-h-screen p-6">
-      <h1 className="text-3xl font-bold text-center mb-8">Your Cart</h1>
+        <div className="flex justify-between items-center mb-8 ml-32">
+            <h1 className="text-3xl font-bold text-center flex-1">Your Cart</h1>
+            {username ? <div className="text-left">{username}</div> : <div className="text-left">Login before Order</div>}
+        </div>
 
       {cart.length > 0 ? (
         <div className="space-y-6">
@@ -54,7 +93,7 @@ const Cart = () => {
           <div className="text-right">
             <h3 className="text-xl font-bold">Total: ${calculateTotal()}</h3>
           </div>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded-md" onClick={handleOrder}>Order</button>
+          <button className="bg-blue-500 text-white px-4 py-2 rounded-md" onClick={handleCheckout}>Order</button>
         </div>
       ) : (
         <h2 className="text-center text-xl font-semibold">Your cart is empty.</h2>

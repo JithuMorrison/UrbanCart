@@ -25,6 +25,7 @@ const LoginPage = () => {
         if (response.ok) {
           alert('Login successful:');
           localStorage.setItem('userId', data._id);
+          localStorage.setItem('username', data.username);
           if(data.username=='jithu'){
             nav('/admindash');
           }
