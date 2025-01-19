@@ -109,7 +109,7 @@ app.post('/users', async (req, res) => {
 app.post('/users_id', async (req, res) => {
   const { id } = req.body;
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(id).populate('orders');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -119,7 +119,6 @@ app.post('/users_id', async (req, res) => {
     res.status(400).json({ message: 'Error fetching user', error: err });
   }
 });
-  
   
 app.get('/products', async (req, res) => {
     try {

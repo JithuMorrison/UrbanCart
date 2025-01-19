@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
 
 const UserDashboard = () => {
-  const [userData, setUserData] = useState({ name: "John Doe", email: "john.doe@example.com", address: "123 Main St, Springfield", password: "password123" });
-
+  const [userData, setUserData] = useState({ name: "Imposter", email: "foundyou@gmail.com" });
+  const [user,setUser] = useState(() => {
+      const useer = localStorage.getItem("userId");
+      return useer;
+    });
   const [formData, setFormData] = useState({name: "", email: "", address: "", password: "", });
 
   const [products, setProducts] = useState([]); // State for storing products
@@ -18,9 +21,20 @@ const UserDashboard = () => {
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const response = await fetch("http://localhost:3000/products"); // Adjust to your backend URL
+        const response = await fetch("http://localhost:3000/products");
+        const userresp = await fetch('http://localhost:3000/users_id', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: user,
+          }),
+        });
         const data = await response.json();
+        const usdata = await userresp.json();
         setProducts(data);
+        setUserData(usdata);
       } catch (err) {
         console.error("Error fetching products:", err);
       }
@@ -52,9 +66,8 @@ const UserDashboard = () => {
       <section className="mb-6 p-4 border border-gray-300 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Profile</h2>
         <div className="mb-4">
-          <p><strong>Name:</strong> {userData.name}</p>
+          <p><strong>Name:</strong> {userData.username}</p>
           <p><strong>Email:</strong> {userData.email}</p>
-          <p><strong>Address:</strong> {userData.address}</p>
         </div>
 
         <h3 className="text-lg font-semibold mb-2">Update Profile</h3>
@@ -100,29 +113,39 @@ const UserDashboard = () => {
         </form>
       </section>
 
-      {/* Order History Section */}
       <section className="mb-6 p-4 border border-gray-300 rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Order History</h2>
-        <table className="w-full table-auto">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="p-2 text-left">Product</th>
-              <th className="p-2 text-left">Quantity</th>
-              <th className="p-2 text-left">Total</th>
-              <th className="p-2 text-left">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id} className="border-b hover:bg-gray-50">
-                <td className="p-2">{order.productName}</td>
-                <td className="p-2">{order.quantity}</td>
-                <td className="p-2">${order.total}</td>
-                <td className="p-2">{order.date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="mb-6 p-4 border border-gray-300 rounded-lg w-[350px]">
+          {userData.orders && userData.orders.length > 0 ? (
+            userData.orders.map((order,index) => (
+              <div>
+                <div className="flex justify-between items-center">
+                  <div className="flex-1 text-center ml-16">{"Order " + (index + 1).toString()}</div>
+                  <div className="text-right">{new Date(order.orderDate).toLocaleDateString()}</div>
+                </div>
+                <table key={order._id} className="min-w-full">
+                  <thead>
+                    <tr>
+                      <th className="p-2">Product Name</th>
+                      <th className="p-2">Quantity</th>
+                      <th className="p-2">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.order.map((item, index) => (
+                      <tr key={index} className="border-b hover:bg-gray-50">
+                        <td className="p-2">{item.productName}</td>
+                        <td className="p-2">{item.quantityOrdered}</td>
+                        <td className="p-2">${item.price}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))
+          ) : (
+            <p>No orders found.</p>
+          )}
+        </div>
       </section>
       <section className="mb-6 p-4 border border-gray-300 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Products</h2>
