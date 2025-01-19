@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
-
-// Dummy data for products
-const initialProducts = [
-  { id: 1, name: 'Product 1', price: 100, quantity: 10, discount: 10 },
-  { id: 2, name: 'Product 2', price: 200, quantity: 5, discount: 15 },
-  { id: 3, name: 'Product 3', price: 150, quantity: 20, discount: 5 },
-];
+import 'font-awesome/css/font-awesome.min.css';
 
 const AdminDashboard = () => {
   const [userData, setUserData] = useState({ name: "John Doe", email: "john.doe@example.com", address: "123 Main St, Springfield", password: "password123" });
   const [formData, setFormData] = useState({name: "", email: "", address: "", password: "", });
 
-  const [products, setProducts] = useState(initialProducts);
-  const [newProduct, setNewProduct] = useState({ name: '', price: 0, quantity: 0, discount: 0 });
+  const [products, setProducts] = useState([]);
+  const [newProduct, setNewProduct] = useState({ productName: '', price: 0, quantity: 0, discount: 0, image:'', category: '' });
+
+  const [edit,setEdit] = useState(false);
+  const [ind,setInd] = useState(null);
 
   useEffect(() => {
       const fetchProducts = async () => {
@@ -44,20 +41,23 @@ const AdminDashboard = () => {
           quantity: 0,
           price: 0,
           discount: 0,
-        }); // Reset product form
+          image: '',
+          category: '',
+        });
       } catch (err) {
         console.error("Error adding product:", err);
       }
     };
 
-  // Update product details
-  const handleUpdate = (id, field, value) => {
-    setProducts(
-      products.map((product) =>
-        product.id === id ? { ...product, [field]: value } : product
-      )
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault();
+    const updatedProducts = products.map((product, index) =>
+      index === ind
+        ? newProduct
+        : product
     );
-  };
+    setProducts(updatedProducts);
+  }
 
   const handleNewProductChange = (e) => {
     const { name, value } = e.target;
@@ -67,13 +67,28 @@ const AdminDashboard = () => {
     });
   };
 
+  const handleProductSet = (ind,pro,pri,qua,dis,img,cat) => {
+    setNewProduct({productName:pro,price:pri,quantity: qua,discount: dis,image: img,category:cat});
+    setInd(ind);
+    setEdit(true);
+  }
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
 
       <section className="mb-6 p-4 border border-gray-300 rounded-lg">
-        <h3 className="text-lg font-semibold mt-4">Add New Product</h3>
-        <form onSubmit={handleAddProduct} className="space-y-4">
+        <h3 className="text-lg font-semibold mb-4">Add New Product</h3>
+        <i className="fa fa-refresh absolute top-[155px] right-10 cursor-pointer text-gray-500 hover:text-gray-700"></i>
+        <form onSubmit={edit ? handleUpdateProduct : handleAddProduct} className="space-y-4">
+          <input
+            type="text"
+            name="image"
+            value={newProduct.image}
+            onChange={handleNewProductChange}
+            placeholder="Image Url"
+            className="border p-2 w-full rounded"
+          />
           <input
             type="text"
             name="productName"
@@ -106,11 +121,19 @@ const AdminDashboard = () => {
             placeholder="Discount"
             className="border p-2 w-full rounded"
           />
+          <input
+            type="text"
+            name="category"
+            value={newProduct.category}
+            onChange={handleNewProductChange}
+            placeholder="Category"
+            className="border p-2 w-full rounded"
+          />
           <button
             type="submit"
             className="bg-green-500 text-white px-4 py-2 rounded"
           >
-            Add Product
+            {edit ? "Edit Product" : "Add Product"}
           </button>
         </form>
       </section>
@@ -120,15 +143,21 @@ const AdminDashboard = () => {
         <table className="w-full table-auto">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-2 text-left">Product</th>
-              <th className="p-2 text-left">Quantity</th>
-              <th className="p-2 text-left">Price</th>
-              <th className="p-2 text-left">Discount</th>
+              <th className='p-2'>Image</th>
+              <th className="p-2">Product</th>
+              <th className="p-2">Quantity</th>
+              <th className="p-2">Price</th>
+              <th className="p-2">Discount</th>
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
-              <tr key={product._id} className="border-b hover:bg-gray-50">
+            {products.map((product,index) => (
+              <tr key={product._id} className="border-b hover:bg-gray-50" onClick={() => handleProductSet(index,product.productName,product.price,product.quantity,product.discount,product.image,product.category)}>
+                <td className="p-2 text-center">
+                  <div className="flex items-center justify-center h-full">
+                    <img src={product.image} className="h-10 object-cover rounded-full" alt="Null" />
+                  </div>
+                </td>
                 <td className="p-2">{product.productName}</td>
                 <td className="p-2">{product.quantity}</td>
                 <td className="p-2">${product.price}</td>
