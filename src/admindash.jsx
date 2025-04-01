@@ -81,6 +81,10 @@ const AdminDashboard = () => {
         <h3 className="text-lg font-semibold mb-4">Add New Product</h3>
         <i className="fa fa-refresh absolute top-[155px] right-10 cursor-pointer text-gray-500 hover:text-gray-700"></i>
         <form onSubmit={edit ? handleUpdateProduct : handleAddProduct} className="space-y-4">
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Image URL :
+        </label>
           <input
             type="text"
             name="image"
@@ -89,6 +93,11 @@ const AdminDashboard = () => {
             placeholder="Image Url"
             className="border p-2 w-full rounded"
           />
+        </div>
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Name :
+        </label>
           <input
             type="text"
             name="productName"
@@ -97,6 +106,11 @@ const AdminDashboard = () => {
             placeholder="Product Name"
             className="border p-2 w-full rounded"
           />
+        </div>
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Quantity :
+        </label>
           <input
             type="number"
             name="quantity"
@@ -105,6 +119,11 @@ const AdminDashboard = () => {
             placeholder="Quantity"
             className="border p-2 w-full rounded"
           />
+          </div>
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Price :
+        </label>
           <input
             type="number"
             name="price"
@@ -113,6 +132,11 @@ const AdminDashboard = () => {
             placeholder="Price"
             className="border p-2 w-full rounded"
           />
+        </div>
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Discount :
+        </label>
           <input
             type="number"
             name="discount"
@@ -121,6 +145,11 @@ const AdminDashboard = () => {
             placeholder="Discount"
             className="border p-2 w-full rounded"
           />
+        </div>
+        <div className='flex'>
+        <label htmlFor="image" className="block text-sm font-semibold text-gray-700 mb-1 w-32 mt-2">
+          Category :
+        </label>
           <input
             type="text"
             name="category"
@@ -129,6 +158,7 @@ const AdminDashboard = () => {
             placeholder="Category"
             className="border p-2 w-full rounded"
           />
+        </div>
           <button
             type="submit"
             className="bg-green-500 text-white px-4 py-2 rounded"

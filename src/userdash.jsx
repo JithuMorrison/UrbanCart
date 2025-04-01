@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
 
 const UserDashboard = () => {
   const [userData, setUserData] = useState({ name: "Imposter", email: "foundyou@gmail.com" });
@@ -7,6 +8,7 @@ const UserDashboard = () => {
       return useer;
     });
   const [formData, setFormData] = useState({name: "", email: "", address: "", password: "", });
+  const nav = useNavigate();
 
   const [products, setProducts] = useState([]); // State for storing products
   const [newProduct, setNewProduct] = useState({
@@ -58,9 +60,21 @@ const UserDashboard = () => {
     setFormData({ name: "", email: "", address: "", password: "" }); // Reset form
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
+    nav('/');
+  };  
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">User Dashboard</h1>
+
+      <div className="mt-4 text-center">
+      <button onClick={handleLogout} className="text-red-500 hover:underline" >
+        Logout
+      </button>
+    </div>
 
       {/* Profile Section */}
       <section className="mb-6 p-4 border border-gray-300 rounded-lg">
