@@ -6,6 +6,10 @@ function Header() {
     const useer = localStorage.getItem("userId");
     return useer;
   });
+  const [username,setUsername] = useState(() => {
+    const useer = localStorage.getItem("username");
+    return useer;
+  });
   
   return (
     <nav className="bg-gray-800 text-white p-4 flex justify-between items-center">
@@ -18,6 +22,7 @@ function Header() {
         <li><a href="/#shop" className="hover:text-gray-300">Shop</a></li>
         <li><a href="/#about" className="hover:text-gray-300">About</a></li>
         <li><a href="/#contact" className="hover:text-gray-300">Contact</a></li>
+        {username=='jithu' && <li><a href="/admindash" className="hover:text-gray-300">Admin</a></li>}
         <li><a href="/cart" className="hover:text-gray-300 items-center space-x-2">
           <i className="fa fa-shopping-cart"></i>
         </a></li>
