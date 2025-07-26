@@ -507,6 +507,104 @@ app.put('/user/:userId/notifications/:notificationId/read', async (req, res) => 
   }
 });
 
+// Add this to your routes section (before the 404 handler)
+
+// Personalized product recommendations
+app.get('/user/:userId/recommendations', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const user = await User.findById(userId);
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Get user's order history to find categories they like
+    const userOrders = await Order.find({ userId }).populate('items.productId');
+    
+    // Find most ordered categories
+    const categoryCounts = {};
+    userOrders.forEach(order => {
+      order.items.forEach(item => {
+        const category = item.productId.category;
+        categoryCounts[category] = (categoryCounts[category] || 0) + item.quantityOrdered;
+      });
+    });
+    
+    // Get top 3 categories
+    const topCategories = Object.entries(categoryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([category]) => category);
+    
+    // Get recommended products from these categories
+    let recommendedProducts = [];
+    
+    if (topCategories.length > 0) {
+      recommendedProducts = await Product.find({
+        category: { $in: topCategories },
+        _id: { $nin: userOrders.flatMap(o => o.items.map(i => i.productId._id)) }
+      })
+      .sort({ averageRating: -1 })
+      .limit(10);
+    }
+    
+    // If not enough recommendations, add popular products
+    if (recommendedProducts.length < 5) {
+      const popularProducts = await Product.find()
+        .sort({ averageRating: -1 })
+        .limit(5 - recommendedProducts.length);
+      recommendedProducts = [...recommendedProducts, ...popularProducts];
+    }
+    
+    res.json(recommendedProducts);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// New arrivals endpoint (or modify existing products endpoint to support sorting)
+app.get('/products/new-arrivals', async (req, res) => {
+  try {
+    const products = await Product.find()
+      .sort({ createdAt: -1 })
+      .limit(10);
+    res.json(products);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// You can also modify your existing products endpoint to support sorting:
+app.get('/products', async (req, res) => {
+  try {
+    const { category, search, sort, limit } = req.query;
+    const query = {};
+    
+    if (category) query.category = category;
+    if (search) {
+      query.$or = [
+        { productName: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    let sortOption = {};
+    if (sort === 'price-asc') sortOption = { price: 1 };
+    if (sort === 'price-desc') sortOption = { price: -1 };
+    if (sort === 'rating') sortOption = { averageRating: -1 };
+    if (sort === 'newest') sortOption = { createdAt: -1 };
+    if (sort === 'popular') sortOption = { 'ratings.length': -1 }; // Sort by number of reviews
+    
+    const products = await Product.find(query)
+      .sort(sortOption)
+      .limit(parseInt(limit) || 0);
+      
+    res.json(products);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 // Admin Routes
 app.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
