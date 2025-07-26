@@ -1,37 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import 'font-awesome/css/font-awesome.min.css';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { FiShoppingCart, FiUser } from 'react-icons/fi';
+import Notifications from './notifications';
 
-function Header() {
-  const [user,setUser] = useState(() => {
-    const useer = localStorage.getItem("userId");
-    return useer;
-  });
-  const [username,setUsername] = useState(() => {
-    const useer = localStorage.getItem("username");
-    return useer;
-  });
-  
+const Header = () => {
+  const userId = localStorage.getItem('userId');
+  const username = localStorage.getItem('username');
+
   return (
-    <nav className="bg-gray-800 text-white p-4 flex justify-between items-center">
-      <div className="text-2xl font-bold flex items-center space-x-2">
-        <i className="fa fa-shopping-cart text-yellow-500"></i>
-        <span>TrendyShop</span>
+    <header className="bg-white shadow-sm py-4 px-6">
+      <div className="container mx-auto flex justify-between items-center">
+        <Link to="/" className="text-2xl font-bold text-gray-800 flex items-center">
+          <FiShoppingCart className="mr-2 text-blue-600" />
+          TrendyShop
+        </Link>
+        
+        <nav className="hidden md:flex space-x-6">
+          <Link to="/" className="text-gray-600 hover:text-blue-600">Home</Link>
+          <Link to="/shop" className="text-gray-600 hover:text-blue-600">Shop</Link>
+          <Link to="/categories" className="text-gray-600 hover:text-blue-600">Categories</Link>
+          <Link to="/about" className="text-gray-600 hover:text-blue-600">About</Link>
+          <Link to="/contact" className="text-gray-600 hover:text-blue-600">Contact</Link>
+        </nav>
+        
+        <div className="flex items-center space-x-4">
+          {userId && <Notifications />}
+          
+          <Link to="/cart" className="p-2 rounded-full hover:bg-gray-100 relative">
+            <FiShoppingCart className="text-xl" />
+            {/* Cart count badge would go here */}
+          </Link>
+          
+          <Link 
+            to={userId ? (username === 'admin' ? '/admin/dashboard' : '/user/dashboard') : '/login'} 
+            className="p-2 rounded-full hover:bg-gray-100"
+          >
+            <FiUser className="text-xl" />
+          </Link>
+          
+          {userId && (
+            <span className="hidden md:inline text-sm font-medium">
+              Hi, {username}
+            </span>
+          )}
+        </div>
       </div>
-      <ul className="flex space-x-6">
-        <li><a href="/#home" className="hover:text-gray-300">Home</a></li>
-        <li><a href="/#shop" className="hover:text-gray-300">Shop</a></li>
-        <li><a href="/#about" className="hover:text-gray-300">About</a></li>
-        <li><a href="/#contact" className="hover:text-gray-300">Contact</a></li>
-        {username=='jithu' && <li><a href="/admindash" className="hover:text-gray-300">Admin</a></li>}
-        <li><a href="/cart" className="hover:text-gray-300 items-center space-x-2">
-          <i className="fa fa-shopping-cart"></i>
-        </a></li>
-        <li className='bg-white w-[30px] h-[30px] rounded-full -mt-1'><a href={user ? "/userdash" : "/login"} className="text-gray-500 hover:text-gray-300 items-center space-x-2">
-          <i className="fa fa-user mt-1"></i>
-        </a></li>
-      </ul>
-    </nav>
+    </header>
   );
-}
+};
 
 export default Header;

@@ -1,32 +1,57 @@
-import { useState } from 'react'
-import './App.css'
+import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import Header from './header'
-import Homepg from './homepg'
-import Footer from './footer'
+import Header from './header';
+import Home from './homepg';
+import Footer from './footer';
 import UserDashboard from './userdash'
-import AdminDashboard from './admindash'
-import LoginPage from './login';
-import RegisterPage from './register';
+import AdminDashboard from './admindash';
+import Login from './login';
+import Register from './register';
 import Cart from './cart';
+import Checkout from './chexkout';
+import Wishlist from './wishlist';
+import OrderTracking from './ordertracking';
+import OrdersDashboard from './ordersdasj';
+import DiscountManager from './discountmanager';
+import AnalyticsDashboard from './analyticsdash';
+import ProductManagement from './productmanagement';
+import UserManagement from './usermanagement';
+import AdminSettings from './adminsettings';
+import Shop from './shop';
+import ProductDetail from './productdetail';
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
     <Router>
       <Header />
       <Routes>
-        <Route path="/" element={<Homepg />} />
-        <Route path="/userdash" element={<UserDashboard />} />
-        <Route path="/admindash" element={<AdminDashboard />} />
-        <Route path='/login' element={<LoginPage/>} />
-        <Route path='/register' element={<RegisterPage/>} />
-        <Route path='/cart' element={<Cart/>} />
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route path="/shop" element={<Shop />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/wishlist" element={<Wishlist />} />
+        <Route path="/orders/:orderId" element={<OrderTracking />} />
+        <Route path="/products/:productId" element={<ProductDetail />} />
+        
+        {/* User Routes */}
+        <Route path="/user/dashboard" element={<UserDashboard />} />
+        
+        {/* Admin Routes */}
+        <Route path="/admin/dashboard" element={<AdminDashboard />}>
+          <Route index element={<OrdersDashboard />} />
+          <Route path="orders" element={<OrdersDashboard />} />
+          <Route path="products" element={<ProductManagement />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="discounts" element={<DiscountManager />} />
+          <Route path="analytics" element={<AnalyticsDashboard />} />
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
       </Routes>
       <Footer />
     </Router>
-  )
+  );
 }
 
-export default App
+export default App;
