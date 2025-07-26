@@ -255,12 +255,33 @@ app.put('/user/:id', async (req, res) => {
 });
 
 // Wishlist Routes
+// Update these wishlist routes
+
+// Get user's wishlist with populated products
+app.get('/user/:userId/wishlist', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId)
+      .populate('wishlist', 'productName price images category');
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    res.json(user.wishlist);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Add to wishlist
 app.post('/user/:userId/wishlist', async (req, res) => {
   try {
     const { productId } = req.body;
     const user = await User.findById(req.params.userId);
     
     if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Check if product exists
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
     
     if (user.wishlist.includes(productId)) {
       return res.status(400).json({ message: 'Product already in wishlist' });
@@ -269,7 +290,31 @@ app.post('/user/:userId/wishlist', async (req, res) => {
     user.wishlist.push(productId);
     await user.save();
     
-    res.json(user.wishlist);
+    // Return populated wishlist
+    const populatedUser = await User.findById(req.params.userId)
+      .populate('wishlist', 'productName price images category');
+    
+    res.json(populatedUser.wishlist);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Remove from wishlist
+app.delete('/user/:userId/wishlist/:productId', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    user.wishlist = user.wishlist.filter(id => id.toString() !== req.params.productId);
+    await user.save();
+    
+    // Return populated wishlist
+    const populatedUser = await User.findById(req.params.userId)
+      .populate('wishlist', 'productName price images category');
+    
+    res.json(populatedUser.wishlist);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -561,6 +606,39 @@ app.get('/user/:userId/recommendations', async (req, res) => {
   }
 });
 
+// Get user details with populated wishlist and cart
+app.get('/user/:userId', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId)
+      .populate('wishlist', 'productName price images category')
+      .populate('cart.productId', 'productName price images category');
+      
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Don't send sensitive data
+    const userData = {
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      addresses: user.addresses,
+      wishlist: user.wishlist,
+      cart: user.cart,
+      orders: user.orders,
+      notifications: user.notifications,
+      role: user.role,
+      lastLogin: user.lastLogin,
+      joinDate: user.joinDate
+    };
+    
+    res.json(userData);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 // New arrivals endpoint (or modify existing products endpoint to support sorting)
 app.get('/products/new-arrivals', async (req, res) => {
   try {
@@ -600,6 +678,15 @@ app.get('/products', async (req, res) => {
       .limit(parseInt(limit) || 0);
       
     res.json(products);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get('/products/categories', async (req, res) => {
+  try {
+    const categories = await Product.distinct('category');
+    res.json(categories);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
