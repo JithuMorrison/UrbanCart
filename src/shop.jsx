@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FiStar, FiShoppingCart, FiHeart, FiFilter, FiX, FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import { FiStar, FiShoppingCart, FiHeart, FiFilter, FiX } from 'react-icons/fi';
 
 const Shop = () => {
   const [products, setProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({
     category: '',
-    priceRange: '',
+    minPrice: '',
+    maxPrice: '',
     sort: 'newest',
     search: ''
   });
@@ -20,14 +22,11 @@ const Shop = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch products with filters
-        let url = 'http://localhost:3000/products?';
-        if (filters.category) url += `category=${filters.category}&`;
-        if (filters.search) url += `search=${filters.search}&`;
-        if (filters.sort) url += `sort=${filters.sort}&`;
+        setLoading(true);
         
+        // Fetch all products and categories
         const [productsRes, categoriesRes, wishlistRes] = await Promise.all([
-          fetch(url),
+          fetch('http://localhost:3000/products'),
           fetch('http://localhost:3000/products/categories'),
           userId ? fetch(`http://localhost:3000/user/${userId}/wishlist`) : Promise.resolve(null)
         ]);
@@ -58,7 +57,57 @@ const Shop = () => {
     if (categoryParam) {
       setFilters(prev => ({ ...prev, category: categoryParam }));
     }
-  }, [filters, userId, location.search]);
+  }, [userId, location.search]);
+
+  // Apply filters whenever filters state changes
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    let results = [...products];
+
+    // Apply category filter
+    if (filters.category && filters.category !== 'All') {
+      results = results.filter(product => product.category === filters.category);
+    }
+
+    // Apply search filter
+    if (filters.search) {
+      const searchTerm = filters.search.toLowerCase();
+      results = results.filter(product => 
+        product.productName.toLowerCase().includes(searchTerm) ||
+        product.description.toLowerCase().includes(searchTerm) ||
+        product.category.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    // Apply price range filter
+    if (filters.minPrice || filters.maxPrice) {
+      const min = filters.minPrice ? Number(filters.minPrice) : 0;
+      const max = filters.maxPrice ? Number(filters.maxPrice) : Infinity;
+      
+      results = results.filter(product => 
+        product.price >= min && product.price <= max
+      );
+    }
+
+    // Apply sorting
+    switch (filters.sort) {
+      case 'price-asc':
+        results.sort((a, b) => a.price - b.price);
+        break;
+      case 'price-desc':
+        results.sort((a, b) => b.price - a.price);
+        break;
+      case 'rating':
+        results.sort((a, b) => b.averageRating - a.averageRating);
+        break;
+      case 'newest':
+      default:
+        results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+
+    setFilteredProducts(results);
+  }, [products, filters]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -68,7 +117,8 @@ const Shop = () => {
   const clearFilters = () => {
     setFilters({
       category: '',
-      priceRange: '',
+      minPrice: '',
+      maxPrice: '',
       sort: 'newest',
       search: ''
     });
@@ -156,19 +206,26 @@ const Shop = () => {
               {/* Price Range */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Price Range</label>
-                <select
-                  name="priceRange"
-                  value={filters.priceRange}
-                  onChange={handleFilterChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">All Prices</option>
-                  <option value="0-50">Under $50</option>
-                  <option value="50-100">$50 - $100</option>
-                  <option value="100-200">$100 - $200</option>
-                  <option value="200-500">$200 - $500</option>
-                  <option value="500-">Over $500</option>
-                </select>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    name="minPrice"
+                    value={filters.minPrice}
+                    onChange={handleFilterChange}
+                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Min"
+                    min="0"
+                  />
+                  <input
+                    type="number"
+                    name="maxPrice"
+                    value={filters.maxPrice}
+                    onChange={handleFilterChange}
+                    className="w-1/2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Max"
+                    min="0"
+                  />
+                </div>
               </div>
               
               {/* Sort */}
@@ -202,8 +259,16 @@ const Shop = () => {
           <div className="mb-6">
             <h1 className="text-3xl font-bold mb-2">Shop</h1>
             <p className="text-gray-600">
-              {products.length} {products.length === 1 ? 'product' : 'products'} found
-              {filters.category && ` in ${filters.category}`}
+              {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'} found
+              {filters.category && filters.category !== 'All' && ` in ${filters.category}`}
+              {(filters.minPrice || filters.maxPrice) && (
+                <span>
+                  {` priced `}
+                  {filters.minPrice && `from $${filters.minPrice}`}
+                  {filters.minPrice && filters.maxPrice && ` to `}
+                  {filters.maxPrice && `up to $${filters.maxPrice}`}
+                </span>
+              )}
             </p>
           </div>
           
@@ -220,9 +285,9 @@ const Shop = () => {
                 </div>
               ))}
             </div>
-          ) : products.length > 0 ? (
+          ) : filteredProducts.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {products.map(product => (
+              {filteredProducts.map(product => (
                 <div key={product._id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
                   <div className="relative">
                     <Link to={`/products/${product._id}`} className="block">
