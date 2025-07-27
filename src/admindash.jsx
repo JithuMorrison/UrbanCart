@@ -1,12 +1,58 @@
-import React from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { FiShoppingBag, FiUsers, FiPieChart, FiTag, FiSettings, FiHome } from 'react-icons/fi';
+import React, { useEffect } from 'react';
+import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
+import { FiShoppingBag, FiUsers, FiPieChart, FiTag, FiSettings, FiHome, FiLogOut } from 'react-icons/fi';
 
 const AdminDashboard = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Authentication fetch function
+  const authFetch = async (url, options = {}) => {
+    const token = localStorage.getItem('token'); // If using token-based auth
+    const userId = localStorage.getItem('userId');
+    
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (userId) headers['x-user-id'] = userId;
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Request failed');
+    }
+
+    return response.json();
+  };
+
+  // Verify admin status
+  useEffect(() => {
+    const role = localStorage.getItem('role');
+    if (role !== 'admin') {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   const getActiveClass = (path) => {
-    return location.pathname.includes(path) ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50';
+    return location.pathname.includes(path) 
+      ? 'bg-blue-50 text-blue-600' 
+      : 'hover:bg-gray-50';
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
+    localStorage.removeItem('email');
+    localStorage.removeItem('role');
+    localStorage.removeItem('token');
+    navigate('/login');
   };
 
   return (
@@ -52,14 +98,6 @@ const AdminDashboard = () => {
           </Link>
           
           <Link
-            to="/admin/dashboard/discounts"
-            className={`flex items-center space-x-3 p-3 rounded-lg ${getActiveClass('/discounts')}`}
-          >
-            <FiTag />
-            <span>Discounts</span>
-          </Link>
-          
-          <Link
             to="/admin/dashboard/analytics"
             className={`flex items-center space-x-3 p-3 rounded-lg ${getActiveClass('/analytics')}`}
           >
@@ -75,11 +113,19 @@ const AdminDashboard = () => {
             <span>Settings</span>
           </Link>
         </nav>
+
+        <button
+          onClick={handleLogout}
+          className="flex items-center space-x-3 p-3 rounded-lg text-red-500 hover:bg-red-50 w-full mt-4"
+        >
+          <FiLogOut />
+          <span>Logout</span>
+        </button>
       </div>
       
       {/* Main Content */}
       <div className="flex-1 p-8">
-        <Outlet />
+        <Outlet context={{ authFetch }} />
       </div>
     </div>
   );

@@ -39,7 +39,6 @@ function App() {
         
         {/* Admin Routes */}
         <Route path="/admin/dashboard" element={<AdminDashboard />}>
-          <Route index element={<OrdersDashboard />} />
           <Route path="orders" element={<OrdersDashboard />} />
           <Route path="products" element={<ProductManagement />} />
           <Route path="users" element={<UserManagement />} />

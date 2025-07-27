@@ -156,12 +156,26 @@ const transporter = nodemailer.createTransport({
 });
 
 // Middleware
+// Middleware
 const authenticateAdmin = (req, res, next) => {
-  // In a real app, you'd use JWT or sessions
-  if (req.headers['x-admin-auth'] === process.env.ADMIN_SECRET) {
-    return next();
+  // Get the user ID from the request (could be from JWT, session, or headers)
+  const userId = req.headers['x-user-id'];
+  
+  if (!userId) {
+    return res.status(403).json({ message: 'Authentication required' });
   }
-  res.status(403).json({ message: 'Admin access denied' });
+
+  // Check if user is admin
+  User.findById(userId)
+    .then(user => {
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin access denied' });
+      }
+      next();
+    })
+    .catch(err => {
+      res.status(500).json({ message: 'Server error' });
+    });
 };
 
 // Error handling middleware
@@ -179,14 +193,19 @@ const errorHandler = (err, req, res, next) => {
 app.post('/user/register', async (req, res) => {
   try {
     const { username, password, email, firstName, lastName } = req.body;
+    
+    // For demo purposes - in production, you'd have a more secure way to create admin accounts
+    const role = username === 'admin' ? 'admin' : 'user';
+    
     const newUser = new User({ 
       username, 
       password, 
       email, 
       firstName, 
       lastName,
-      role: username === 'admin' ? 'admin' : 'user' // Just for demo
+      role
     });
+    
     await newUser.save();
     
     // Send welcome email
@@ -199,7 +218,6 @@ app.post('/user/register', async (req, res) => {
       });
     } catch (emailErr) {
       console.error('Email sending failed:', emailErr);
-      // Don't fail registration if email fails
     }
     
     res.status(201).json(newUser);
@@ -221,7 +239,15 @@ app.post('/user/login', async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
     
-    res.json(user);
+    // Return user data including role
+    res.json({
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role
+    });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }

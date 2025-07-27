@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { FiUser, FiMail, FiCalendar, FiEdit2, FiTrash2, FiSearch } from 'react-icons/fi';
 
 const UserManagement = () => {
+  const { authFetch } = useOutletContext();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -11,25 +13,26 @@ const UserManagement = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch('http://localhost:3000/admin/users', {
-          headers: { 'x-admin-auth': 'your-admin-secret' }
-        });
-        const data = await response.json();
+        setLoading(true);
+        const data = await authFetch('http://localhost:3000/admin/users');
         setUsers(data);
-        setLoading(false);
       } catch (err) {
         console.error('Error fetching users:', err);
+      } finally {
         setLoading(false);
       }
     };
 
     fetchUsers();
-  }, []);
+  }, [authFetch]);
 
-  const filteredUsers = users.filter(user => 
-    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter users based on search term
+  const filteredUsers = Array.isArray(users) 
+    ? users.filter(user => 
+        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
 
   // Pagination logic
   const indexOfLastUser = currentPage * usersPerPage;
@@ -39,16 +42,12 @@ const UserManagement = () => {
 
   const toggleUserStatus = async (userId, currentStatus) => {
     try {
-      const response = await fetch(`http://localhost:3000/admin/users/${userId}/status`, {
+      const updatedUser = await authFetch(`http://localhost:3000/admin/users/${userId}/status`, {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-admin-auth': 'your-admin-secret'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !currentStatus })
       });
       
-      const updatedUser = await response.json();
       setUsers(users.map(user => 
         user._id === updatedUser._id ? updatedUser : user
       ));
@@ -60,9 +59,8 @@ const UserManagement = () => {
   const deleteUser = async (userId) => {
     if (window.confirm('Are you sure you want to delete this user?')) {
       try {
-        await fetch(`http://localhost:3000/admin/users/${userId}`, {
-          method: 'DELETE',
-          headers: { 'x-admin-auth': 'your-admin-secret' }
+        await authFetch(`http://localhost:3000/admin/users/${userId}`, {
+          method: 'DELETE'
         });
         setUsers(users.filter(user => user._id !== userId));
       } catch (err) {
@@ -70,6 +68,12 @@ const UserManagement = () => {
       }
     }
   };
+
+  if (loading) return (
+    <div className="flex justify-center items-center h-64">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+  );
 
   return (
     <div className="container mx-auto p-4">
@@ -87,9 +91,7 @@ const UserManagement = () => {
         </div>
       </div>
       
-      {loading ? (
-        <div className="text-center py-8">Loading users...</div>
-      ) : users.length === 0 ? (
+      {filteredUsers.length === 0 ? (
         <div className="text-center py-8">
           <FiUser className="mx-auto text-4xl text-gray-300 mb-3" />
           <p className="text-gray-500">No users found</p>
