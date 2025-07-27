@@ -69,6 +69,10 @@ const Cart = () => {
     return (parseFloat(item.priceAfterDiscount) * item.quantity).toFixed(2);
   };
 
+  const calculatePriceAfterDiscount = (price, discount) => {
+    return (price * (1 - discount / 100)).toFixed(2);
+  };
+
   const updateQuantity = async (id, newQuantity) => {
     if (newQuantity < 1) return;
     
@@ -134,7 +138,7 @@ const Cart = () => {
         productName: item.name,
         quantityOrdered: item.quantity,
         price: parseFloat(item.priceAfterDiscount),
-        image: item.image,
+        images: item.images,
       }));
 
       const response = await fetch(`http://localhost:3000/user/${user}/order`, {
@@ -262,7 +266,7 @@ const Cart = () => {
                     <div className="mt-2 flex items-center">
                       <span className="text-gray-700 mr-4">Price:</span>
                       <span className="font-medium">
-                        ${parseFloat(item.priceAfterDiscount).toFixed(2)}
+                        ${parseFloat(item.price).toFixed(2)}
                         {item.discount > 0 && (
                           <span className="ml-2 text-sm bg-red-100 text-red-800 px-2 py-0.5 rounded">
                             {item.discount}% OFF
