@@ -8,12 +8,58 @@ const Cart = () => {
   const [username] = useState(() => localStorage.getItem("username"));
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
-    setCart(storedCart);
-  }, []);
+    const fetchCart = async () => {
+      if (!user) {
+        // Fallback to local storage if not logged in
+        const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
+        setCart(storedCart);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        // Fetch user's cart from server
+        const cartResponse = await fetch(`http://localhost:3000/user/${user}/cart`);
+        if (!cartResponse.ok) throw new Error('Failed to fetch cart');
+        
+        const cartItems = await cartResponse.json();
+        
+        // Fetch product details for each item in cart
+        const productsWithDetails = await Promise.all(
+          cartItems.map(async (item) => {
+            console.log(item);
+            const productResponse = await fetch(`http://localhost:3000/products/${item.id}`);
+            if (!productResponse.ok) throw new Error('Failed to fetch product details');
+            
+            const product = await productResponse.json();
+            console.log(product);
+            return {
+              id: item.productId,
+              quantity: item.quantity,
+              ...product
+            };
+          })
+        );
+        
+        setCart(productsWithDetails);
+        // Also update local storage to keep them in sync
+        localStorage.setItem('cart', JSON.stringify(productsWithDetails));
+      } catch (error) {
+        console.error('Error fetching cart:', error);
+        // Fallback to local storage if API fails
+        const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
+        setCart(storedCart);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCart();
+  }, [user]);
 
   const calculateTotal = () => {
     return cart.reduce((total, item) => total + (parseFloat(item.priceAfterDiscount) * item.quantity), 0).toFixed(2);
@@ -23,21 +69,55 @@ const Cart = () => {
     return (parseFloat(item.priceAfterDiscount) * item.quantity).toFixed(2);
   };
 
-  const updateQuantity = (id, newQuantity) => {
+  const updateQuantity = async (id, newQuantity) => {
     if (newQuantity < 1) return;
     
-    const updatedCart = cart.map(item => 
-      item.id === id ? { ...item, quantity: newQuantity } : item
-    );
-    
-    setCart(updatedCart);
-    localStorage.setItem('cart', JSON.stringify(updatedCart));
+    try {
+      if (user) {
+        // Update quantity on server
+        const response = await fetch(`http://localhost:3000/user/${user}/cart`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId: id, quantity: newQuantity })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update quantity');
+      }
+      
+      // Update local state and storage
+      const updatedCart = cart.map(item => 
+        item.id === id ? { ...item, quantity: newQuantity } : item
+      );
+      
+      setCart(updatedCart);
+      localStorage.setItem('cart', JSON.stringify(updatedCart));
+    } catch (error) {
+      console.error('Error updating quantity:', error);
+      alert('Failed to update quantity. Please try again.');
+    }
   };
 
-  const removeFromCart = (id) => {
-    const updatedCart = cart.filter((item) => item.id !== id);
-    setCart(updatedCart);
-    localStorage.setItem('cart', JSON.stringify(updatedCart));
+  const removeFromCart = async (id) => {
+    try {
+      if (user) {
+        // Remove item from server cart
+        const response = await fetch(`http://localhost:3000/user/${user}/cart`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId: id })
+        });
+        
+        if (!response.ok) throw new Error('Failed to remove item');
+      }
+      
+      // Update local state and storage
+      const updatedCart = cart.filter((item) => item.id !== id);
+      setCart(updatedCart);
+      localStorage.setItem('cart', JSON.stringify(updatedCart));
+    } catch (error) {
+      console.error('Error removing item:', error);
+      alert('Failed to remove item. Please try again.');
+    }
   };
 
   const handleCheckout = async () => {
@@ -50,6 +130,7 @@ const Cart = () => {
     
     try {
       const order = cart.map(item => ({
+        productId: item.id,
         productName: item.name,
         quantityOrdered: item.quantity,
         price: parseFloat(item.priceAfterDiscount),
@@ -67,6 +148,13 @@ const Cart = () => {
       });
 
       if (response.ok) {
+        // Clear cart on server
+        await fetch(`http://localhost:3000/user/${user}/cart`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clearAll: true })
+        });
+        
         localStorage.removeItem('cart');
         setCart([]);
         setOrderSuccess(true);
@@ -96,6 +184,17 @@ const Cart = () => {
           >
             Continue Shopping
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your cart...</p>
         </div>
       </div>
     );
