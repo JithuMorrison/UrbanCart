@@ -11,7 +11,8 @@ const OrderTracking = () => {
   useEffect(() => {
     const fetchOrder = async () => {
       try {
-        const response = await fetch(`http://localhost:3000/order/${orderId}`);
+        const userId = localStorage.getItem('userId');
+        const response = await fetch(`http://localhost:3000/user/${userId}/order/${orderId}`);
         if (!response.ok) {
           throw new Error('Order not found');
         }

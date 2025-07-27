@@ -552,6 +552,19 @@ app.delete('/user/:userId/cart/:productId', async (req, res) => {
   }
 });
 
+app.post('/user/:userId/cart/clear', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).send('User not found');
+
+    user.cart = [];
+    await user.save();
+    res.json({ message: 'Cart cleared successfully' });
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
 // Order Routes
 app.post('/user/:userId/checkout', async (req, res) => {
   try {
@@ -629,25 +642,6 @@ app.post('/user/:userId/checkout', async (req, res) => {
     }
     
     res.status(201).json(order);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
-  }
-});
-
-app.post('/user/:userId/order/:orderId/cancel', async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.orderId);
-    
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    if (order.status !== 'pending') {
-      return res.status(400).json({ message: 'Order cannot be cancelled at this stage' });
-    }
-    
-    order.status = 'cancelled';
-    order.statusHistory.push({ status: 'cancelled', note: 'Cancelled by user' });
-    await order.save();
-    
-    res.json(order);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -848,6 +842,264 @@ app.get('/products/categories', async (req, res) => {
     res.json(categories);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+// Admin Users Routes
+app.get('/admin/users', authenticateAdmin, async (req, res) => {
+  try {
+    const { search } = req.query;
+    const query = {};
+    
+    if (search) {
+      query.$or = [
+        { username: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const users = await User.find(query)
+      .select('-password -cart -wishlist -notifications')
+      .sort({ joinDate: -1 });
+      
+    res.json(users);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put('/admin/users/:id/status', authenticateAdmin, async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { isActive },
+      { new: true }
+    ).select('-password -cart -wishlist -notifications');
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    res.json(user);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete('/admin/users/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    // Delete all orders by this user
+    await Order.deleteMany({ userId: user._id });
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Get all orders for a user
+app.get('/user/:userId/orders', async (req, res) => {
+  try {
+    const orders = await Order.find({ userId: req.params.userId })
+      .sort({ orderDate: -1 })
+      .select('_id items orderDate status total');
+    
+    res.json(orders);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Get specific order details
+app.get('/user/:userId/order/:orderId', async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order || order.userId.toString() !== req.params.userId) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    res.json(order);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Add this route before the 404 handler in your server.js
+
+// Create new order (alternative to checkout)
+app.post('/user/:userId/order', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { items, shippingAddress, paymentMethod, status = 'pending' } = req.body;
+
+    // Validate user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Validate products and calculate totals
+    let subtotal = 0;
+    let shippingFee = 5.99; // Default shipping fee
+    const validatedItems = [];
+
+    for (const item of items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(400).json({ message: `Product ${item.productId} not found` });
+      }
+
+      if (product.quantity < item.quantityOrdered) {
+        return res.status(400).json({ 
+          message: `Not enough stock for ${product.productName}`,
+          available: product.quantity
+        });
+      }
+
+      const itemTotal = item.price * item.quantityOrdered;
+      subtotal += itemTotal;
+
+      validatedItems.push({
+        productId: product._id,
+        productName: product.productName,
+        quantityOrdered: item.quantityOrdered,
+        price: item.price,
+        image: item.image || product.images[0]
+      });
+    }
+
+    // Apply free shipping if subtotal > $50
+    if (subtotal > 50) {
+      shippingFee = 0;
+    }
+
+    // Calculate tax (10% for example)
+    const tax = subtotal * 0.1;
+    const total = subtotal + shippingFee + tax;
+
+    // Create the order
+    const order = new Order({
+      userId,
+      items: validatedItems,
+      shippingAddress,
+      paymentMethod,
+      subtotal,
+      shippingFee,
+      tax,
+      total,
+      status,
+      statusHistory: [{ status }]
+    });
+
+    // Save the order
+    await order.save();
+
+    // Update product quantities
+    for (const item of validatedItems) {
+      await Product.findByIdAndUpdate(item.productId, {
+        $inc: { quantity: -item.quantityOrdered }
+      });
+    }
+
+    // Add order to user's order history
+    user.orders.push(order._id);
+    await user.save();
+
+    // Send order confirmation email
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: user.email,
+        subject: 'Your Order Confirmation',
+        html: `
+          <h1>Thank you for your order, ${user.firstName || user.username}!</h1>
+          <p>Order #${order._id}</p>
+          <p>Status: ${status}</p>
+          <p>Total: $${total.toFixed(2)}</p>
+          <p>Items:</p>
+          <ul>
+            ${validatedItems.map(item => `
+              <li>${item.productName} - ${item.quantityOrdered} x $${item.price.toFixed(2)}</li>
+            `).join('')}
+          </ul>
+        `
+      });
+    } catch (emailErr) {
+      console.error('Failed to send order confirmation email:', emailErr);
+    }
+
+    res.status(201).json(order);
+  } catch (err) {
+    console.error('Error creating order:', err);
+    res.status(500).json({ message: 'Failed to create order', error: err.message });
+  }
+});
+
+// Add this route after the order creation route
+// Cancel order
+app.post('/user/:userId/order/:orderId/cancel', async (req, res) => {
+  try {
+    const { userId, orderId } = req.params;
+    
+    // Find the order
+    const order = await Order.findOne({
+      _id: orderId,
+      userId: userId
+    });
+    
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    
+    // Check if order can be cancelled (only pending or processing orders)
+    if (!['pending', 'processing'].includes(order.status)) {
+      return res.status(400).json({ 
+        message: 'Order cannot be cancelled at this stage' 
+      });
+    }
+    
+    // Update order status
+    order.status = 'cancelled';
+    order.statusHistory.push({
+      status: 'cancelled',
+      changedAt: new Date(),
+      note: 'Cancelled by user'
+    });
+    
+    // Restore product quantities
+    for (const item of order.items) {
+      await Product.findByIdAndUpdate(item.productId, {
+        $inc: { quantity: item.quantityOrdered }
+      });
+    }
+    
+    await order.save();
+    
+    // Send cancellation email
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: user.email,
+          subject: `Order #${order._id} Cancelled`,
+          html: `
+            <h1>Your order has been cancelled</h1>
+            <p>Order #${order._id} has been successfully cancelled.</p>
+            <p>Refund will be processed within 3-5 business days.</p>
+          `
+        });
+      }
+    } catch (emailErr) {
+      console.error('Failed to send cancellation email:', emailErr);
+    }
+    
+    res.json(order);
+  } catch (err) {
+    console.error('Error cancelling order:', err);
+    res.status(500).json({ message: 'Failed to cancel order', error: err.message });
   }
 });
 

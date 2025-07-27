@@ -18,6 +18,7 @@ import UserManagement from './usermanagement';
 import AdminSettings from './adminsettings';
 import Shop from './shop';
 import ProductDetail from './productdetail';
+import OrderSuccess from './ordersuccess';
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
         <Route path="/shop" element={<Shop />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/wishlist" element={<Wishlist />} />
+        <Route path="/order-success" element={<OrderSuccess />} />
         <Route path="/orders/:orderId" element={<OrderTracking />} />
         <Route path="/products/:productId" element={<ProductDetail />} />
         
