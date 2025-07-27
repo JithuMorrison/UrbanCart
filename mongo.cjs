@@ -365,78 +365,57 @@ app.get('/user/:userId/cart', async (req, res) => {
 
 app.post('/user/:userId/cart', async (req, res) => {
   try {
-    const { productId, quantity } = req.body;
+    const { action, productId, quantity, clearAll } = req.body;
     const user = await User.findById(req.params.userId);
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    // Check if product exists
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-    
-    // Check if item already exists in cart
-    const existingItem = user.cart.find(item => 
-      item.productId.toString() === productId
-    );
-    
-    if (existingItem) {
-      // Update quantity if item exists
-      existingItem.quantity += quantity || 1;
-    } else {
-      // Add new item to cart
-      user.cart.push({
-        productId,
-        quantity: quantity || 1,
-        addedAt: new Date()
-      });
-    }
-    
-    await user.save();
-    
-    // Return updated cart
-    const updatedUser = await User.findById(req.params.userId)
-      .populate('cart.productId', 'productName price images discount');
-    
-    const cartItems = updatedUser.cart.map(item => ({
-      id: item.productId._id,
-      quantity: item.quantity,
-      name: item.productId.productName,
-      price: item.productId.price,
-      priceAfterDiscount: item.productId.price * (1 - (item.productId.discount / 100)),
-      discount: item.productId.discount,
-      image: item.productId.images[0] || 'https://via.placeholder.com/150'
-    }));
-    
-    res.status(201).json(cartItems);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
-  }
-});
 
-app.patch('/user/:userId/cart', async (req, res) => {
-  try {
-    const { productId, quantity } = req.body;
-    const user = await User.findById(req.params.userId);
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (action === 'update') {
+      // Handle quantity update
+      const cartItem = user.cart.find(item => 
+        item.productId.toString() === productId
+      );
+      
+      if (!cartItem) {
+        return res.status(404).json({ message: 'Item not found in cart' });
+      }
+      
+      cartItem.quantity = quantity;
+    } 
+    else if (action === 'remove') {
+      // Handle item removal
+      user.cart = user.cart.filter(item => 
+        item.productId.toString() !== productId
+      );
+    }
+    else if (clearAll) {
+      // Handle clear cart
+      user.cart = [];
+    }
+    else {
+      // Default action (add item)
+      const product = await Product.findById(productId);
+      if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
+      }
+      
+      const existingItem = user.cart.find(item => 
+        item.productId.toString() === productId
+      );
+      
+      if (existingItem) {
+        existingItem.quantity += quantity || 1;
+      } else {
+        user.cart.push({
+          productId,
+          quantity: quantity || 1,
+          addedAt: new Date()
+        });
+      }
     }
     
-    // Find the cart item
-    const cartItem = user.cart.find(item => 
-      item.productId.toString() === productId
-    );
-    
-    if (!cartItem) {
-      return res.status(404).json({ message: 'Item not found in cart' });
-    }
-    
-    // Update quantity
-    cartItem.quantity = quantity;
     await user.save();
     
     // Return updated cart

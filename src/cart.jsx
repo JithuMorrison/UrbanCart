@@ -11,48 +11,55 @@ const Cart = () => {
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
+  const calculatePriceAfterDiscount = (price, discount) => {
+    return (price * (1 - discount / 100)).toFixed(2);
+  };
+
   useEffect(() => {
     const fetchCart = async () => {
       if (!user) {
-        // Fallback to local storage if not logged in
         const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
-        setCart(storedCart);
+        const cartWithDiscounts = storedCart.map(item => ({
+          ...item,
+          priceAfterDiscount: calculatePriceAfterDiscount(item.price, item.discount || 0),
+          quantitybuy: item.quantitybuy || 1
+        }));
+        setCart(cartWithDiscounts);
         setIsLoading(false);
         return;
       }
 
       try {
-        // Fetch user's cart from server
-        const cartResponse = await fetch(`http://localhost:3000/user/${user}/cart`);
-        if (!cartResponse.ok) throw new Error('Failed to fetch cart');
+        const response = await fetch(`http://localhost:3000/user/${user}/cart`);
+        if (!response.ok) throw new Error('Failed to fetch cart');
         
-        const cartItems = await cartResponse.json();
+        const cartData = await response.json();
         
-        // Fetch product details for each item in cart
         const productsWithDetails = await Promise.all(
-          cartItems.map(async (item) => {
-            console.log(item);
+          cartData.map(async (item) => {
             const productResponse = await fetch(`http://localhost:3000/products/${item.id}`);
             if (!productResponse.ok) throw new Error('Failed to fetch product details');
             
             const product = await productResponse.json();
-            console.log(product);
             return {
-              id: item.productId,
-              quantity: item.quantity,
+              id: item.id,
+              quantitybuy: item.quantity,
+              priceAfterDiscount: calculatePriceAfterDiscount(product.price, product.discount || 0),
               ...product
             };
           })
         );
         
         setCart(productsWithDetails);
-        // Also update local storage to keep them in sync
-        localStorage.setItem('cart', JSON.stringify(productsWithDetails));
       } catch (error) {
         console.error('Error fetching cart:', error);
-        // Fallback to local storage if API fails
         const storedCart = JSON.parse(localStorage.getItem('cart')) || [];
-        setCart(storedCart);
+        const cartWithDiscounts = storedCart.map(item => ({
+          ...item,
+          priceAfterDiscount: calculatePriceAfterDiscount(item.price, item.discount || 0),
+          quantitybuy: item.quantitybuy || 1
+        }));
+        setCart(cartWithDiscounts);
       } finally {
         setIsLoading(false);
       }
@@ -62,50 +69,55 @@ const Cart = () => {
   }, [user]);
 
   const calculateTotal = () => {
-    return cart.reduce((total, item) => total + (parseFloat(item.priceAfterDiscount) * item.quantity), 0).toFixed(2);
+    return cart.reduce((total, item) => total + (parseFloat(item.priceAfterDiscount) * item.quantitybuy), 0).toFixed(2);
   };
 
   const calculateSubtotal = (item) => {
-    return (parseFloat(item.priceAfterDiscount) * item.quantity).toFixed(2);
-  };
-
-  const calculatePriceAfterDiscount = (price, discount) => {
-    return (price * (1 - discount / 100)).toFixed(2);
+    return (parseFloat(item.priceAfterDiscount) * item.quantitybuy).toFixed(2);
   };
 
   const updateQuantity = async (id, newQuantity) => {
-    if (newQuantity < 1) return;
+  try {
+    const item = cart.find(item => item.id === id);
+    if (!item) return;
     
-    try {
-      if (user) {
-        // Update quantity on server
-        const response = await fetch(`http://localhost:3000/user/${user}/cart`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productId: id, quantity: newQuantity })
-        });
-        
-        if (!response.ok) throw new Error('Failed to update quantity');
-      }
-      
-      // Update local state and storage
-      const updatedCart = cart.map(item => 
-        item.id === id ? { ...item, quantity: newQuantity } : item
-      );
-      
-      setCart(updatedCart);
-      localStorage.setItem('cart', JSON.stringify(updatedCart));
-    } catch (error) {
-      console.error('Error updating quantity:', error);
-      alert('Failed to update quantity. Please try again.');
+    if (newQuantity < 1) return;
+    if (newQuantity > item.quantity) {
+      alert(`Cannot order more than available stock (${item.quantity})`);
+      return;
     }
-  };
+
+    if (user) {
+      // Changed from PATCH to POST
+      const response = await fetch(`http://localhost:3000/user/${user}/cart`, {
+        method: 'POST',  // Changed from PATCH to POST
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: 'update',  // Added action parameter
+          productId: id, 
+          quantity: newQuantity 
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to update quantity');
+    }
+    
+    const updatedCart = cart.map(item => 
+      item.id === id ? { ...item, quantitybuy: newQuantity } : item
+    );
+    
+    setCart(updatedCart);
+    localStorage.setItem('cart', JSON.stringify(updatedCart));
+  } catch (error) {
+    console.error('Error updating quantity:', error);
+    alert('Failed to update quantity. Please try again.');
+  }
+};
 
   const removeFromCart = async (id) => {
     try {
       if (user) {
-        // Remove item from server cart
-        const response = await fetch(`http://localhost:3000/user/${user}/cart`, {
+        const response = await fetch(`http://localhost:3000/user/${user}/cart/${id}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productId: id })
@@ -114,7 +126,6 @@ const Cart = () => {
         if (!response.ok) throw new Error('Failed to remove item');
       }
       
-      // Update local state and storage
       const updatedCart = cart.filter((item) => item.id !== id);
       setCart(updatedCart);
       localStorage.setItem('cart', JSON.stringify(updatedCart));
@@ -130,19 +141,25 @@ const Cart = () => {
       return;
     }
 
+    const invalidItems = cart.filter(item => item.quantitybuy > item.quantity);
+    if (invalidItems.length > 0) {
+      alert(`Some items in your cart exceed available stock. Please adjust quantities before checkout.`);
+      return;
+    }
+
     setIsCheckingOut(true);
     
     try {
       const order = cart.map(item => ({
         productId: item.id,
         productName: item.name,
-        quantityOrdered: item.quantity,
+        quantityOrdered: item.quantitybuy,
         price: parseFloat(item.priceAfterDiscount),
-        images: item.images,
+        image: item.image,
       }));
 
       const response = await fetch(`http://localhost:3000/user/${user}/order`, {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           order: order,
@@ -152,11 +169,9 @@ const Cart = () => {
       });
 
       if (response.ok) {
-        // Clear cart on server
-        await fetch(`http://localhost:3000/user/${user}/cart`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clearAll: true })
+        await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
         });
         
         localStorage.removeItem('cart');
@@ -207,7 +222,6 @@ const Cart = () => {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <button 
             onClick={() => navigate(-1)}
@@ -237,13 +251,12 @@ const Cart = () => {
 
         {cart.length > 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Cart Items */}
             <div className="lg:col-span-2 space-y-4">
               {cart.map((item) => (
                 <div key={item.id} className="bg-white rounded-xl shadow-sm p-4 flex flex-col sm:flex-row">
                   <div className="flex-shrink-0 mb-4 sm:mb-0 sm:mr-4">
                     <img 
-                      src={item.image || 'https://via.placeholder.com/150'} 
+                      src={item.images[0] || 'https://via.placeholder.com/150'} 
                       alt={item.name} 
                       className="w-32 h-32 object-contain rounded-lg"
                       onError={(e) => {
@@ -265,34 +278,51 @@ const Cart = () => {
                     
                     <div className="mt-2 flex items-center">
                       <span className="text-gray-700 mr-4">Price:</span>
-                      <span className="font-medium">
-                        ${parseFloat(item.price).toFixed(2)}
+                      <div className="flex items-center">
+                        {item.discount > 0 ? (
+                          <>
+                            <span className="line-through text-gray-400 mr-2">
+                              ${parseFloat(item.price).toFixed(2)}
+                            </span>
+                            <span className="font-medium text-red-600">
+                              ${item.priceAfterDiscount}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="font-medium">
+                            ${parseFloat(item.price).toFixed(2)}
+                          </span>
+                        )}
                         {item.discount > 0 && (
                           <span className="ml-2 text-sm bg-red-100 text-red-800 px-2 py-0.5 rounded">
                             {item.discount}% OFF
                           </span>
                         )}
-                      </span>
+                      </div>
                     </div>
                     
                     <div className="mt-4 flex items-center">
                       <span className="text-gray-700 mr-4">Quantity:</span>
                       <div className="flex items-center border border-gray-300 rounded-lg">
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.id, item.quantitybuy - 1)}
                           className="px-3 py-1 text-gray-600 hover:bg-gray-100"
-                          disabled={item.quantity <= 1}
+                          disabled={item.quantitybuy <= 1}
                         >
                           -
                         </button>
-                        <span className="px-3 py-1">{item.quantity}</span>
+                        <span className="px-3 py-1">{item.quantitybuy}</span>
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.id, item.quantitybuy + 1)}
                           className="px-3 py-1 text-gray-600 hover:bg-gray-100"
+                          disabled={item.quantitybuy >= item.quantity}
                         >
                           +
                         </button>
                       </div>
+                      <span className="ml-2 text-sm text-gray-500">
+                        {item.quantity} available
+                      </span>
                     </div>
                     
                     <div className="mt-4">
@@ -304,7 +334,6 @@ const Cart = () => {
               ))}
             </div>
 
-            {/* Order Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl shadow-sm p-6 sticky top-4">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Order Summary</h2>
