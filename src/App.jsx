@@ -20,6 +20,7 @@ import Shop from './shop';
 import ProductDetail from './productdetail';
 import OrderSuccess from './ordersuccess';
 import ContactPage from './contactpage';
+import AdminContactPage from './admincontactpage';
 
 function App() {
   return (
@@ -49,6 +50,7 @@ function App() {
           <Route path="discounts" element={<DiscountManager />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="contacts" element={<AdminContactPage />} />
         </Route>
       </Routes>
       <Footer />

@@ -206,7 +206,6 @@ const transporter = nodemailer.createTransport({
 });
 
 // Middleware
-// Middleware
 const authenticateAdmin = (req, res, next) => {
   // Get the user ID from the request (could be from JWT, session, or headers)
   const userId = req.headers['x-user-id'];
@@ -1465,6 +1464,7 @@ app.post('/contacts', async (req, res) => {
     if (!subject || !message || !user || !user._id) {
       return res.status(400).json({ message: 'Subject, message, and user ID are required' });
     }
+    console.log('Creating contact:', { subject, message, userId: user._id });
 
     const newContact = new Contact({
       userId: user._id,
@@ -1556,33 +1556,38 @@ app.post('/contacts/:id/feedback', async (req, res) => {
   }
 });
 
+app.get('/contacts/admin', authenticateAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const filter = {};
+    if (status && ['open', 'answered', 'closed'].includes(status)) {
+      filter.status = status;
+    }
+
+    const contacts = await Contact.find(filter);
+
+    console.log(contacts)
+
+    res.json(contacts);
+  } catch (err) {
+    console.error('Error fetching admin contacts:', err);
+    res.status(500).json({ message: 'Failed to fetch contacts' });
+  }
+});
+
 // Get user's contact history
 app.get('/contacts/:id', async (req, res) => {
   try {
     const userId = req.params.id;
 
     const contacts = await Contact.find({ userId })
+      .populate('userId', 'username email')
       .sort({ updatedAt: -1 });
 
     res.status(200).json(contacts);
   } catch (err) {
     console.error('Error fetching contacts:', err);
-    res.status(500).json({ message: 'Failed to fetch contacts' });
-  }
-});
-
-// Admin gets all contacts
-app.get('/contacts/admin', authenticateAdmin, async (req, res) => {
-  try {
-    const { status } = req.query;
-    const filter = status ? { status } : {};
-    
-    const contacts = await Contact.find(filter)
-      .populate('userId', 'username email')
-      .sort({ updatedAt: -1 });
-    res.json(contacts);
-  } catch (err) {
-    console.error('Error fetching admin contacts:', err);
     res.status(500).json({ message: 'Failed to fetch contacts' });
   }
 });

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { FiShoppingBag, FiUsers, FiPieChart, FiTag, FiSettings, FiHome, FiLogOut } from 'react-icons/fi';
+import { AiFillContacts } from 'react-icons/ai';
 
 const AdminDashboard = () => {
   const location = useLocation();
@@ -111,6 +112,14 @@ const AdminDashboard = () => {
           >
             <FiSettings />
             <span>Settings</span>
+          </Link>
+
+          <Link
+            to="/admin/dashboard/contacts"
+            className={`flex items-center space-x-3 p-3 rounded-lg ${getActiveClass('/contacts')}`}
+          >
+            <AiFillContacts />
+            <span>Contacts</span>
           </Link>
         </nav>
 
