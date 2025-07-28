@@ -39,12 +39,6 @@ const Header = () => {
           <Link to="/about" className="text-gray-600 hover:text-blue-600">About</Link>
           <Link to="/contact" className="text-gray-600 hover:text-blue-600">Contact</Link>
           {userId && <Link to="/orders" className="text-gray-600 hover:text-blue-600">My Orders</Link>}
-          {/* Show Admin Dashboard link if user is admin */}
-          {role === 'admin' && (
-            <Link to="/admin/dashboard" className="text-gray-600 hover:text-blue-600 flex items-center">
-              <FiHome className="mr-1" /> Admin
-            </Link>
-          )}
         </nav>
         
         <div className="flex items-center space-x-4">
@@ -58,12 +52,18 @@ const Header = () => {
           {userId ? (
             <>
               <Link 
-                to={role === 'admin' ? '/admin/dashboard' : '/user/dashboard'} 
+                to='/user/dashboard'
                 className="p-2 rounded-full hover:bg-gray-100"
-                title={role === 'admin' ? 'Admin Dashboard' : 'User Dashboard'}
+                title='User Dashboard'
               >
                 <FiUser className="text-xl" />
               </Link>
+
+              {role === 'admin' && (
+                <Link to="/admin/dashboard" className="p-2 rounded-full hover:bg-gray-100">
+                  <FiHome className="text-xl" /> 
+                </Link>
+              )}
               
               <button
                 onClick={handleLogout}

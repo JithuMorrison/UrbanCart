@@ -159,12 +159,42 @@ const analyticsSchema = new mongoose.Schema({
   }]
 });
 
+const messageSchema = new mongoose.Schema({
+  content: { type: String, required: true },
+  sender: { type: String, enum: ['user', 'admin'], required: true },
+  timestamp: { type: Date, default: Date.now }
+});
+
+const contactSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  subject: { type: String, required: true },
+  messages: [messageSchema],
+  status: { 
+    type: String, 
+    enum: ['open', 'answered', 'closed'], 
+    default: 'open' 
+  },
+  feedback: {
+    rating: { type: Number, min: 1, max: 5 },
+    comment: String,
+    submittedAt: Date
+  },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+contactSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
 // Models
 const Order = mongoose.model('Order', orderSchema);
 const User = mongoose.model('User', userSchema);
 const Product = mongoose.model('Product', productSchema);
 const Discount = mongoose.model('Discount', discountSchema);
 const Analytics = mongoose.model('Analytics', analyticsSchema);
+const Contact = mongoose.model('Contact', contactSchema);
 
 // Email transporter
 const transporter = nodemailer.createTransport({
@@ -1425,6 +1455,135 @@ app.post('/products/:id/reviews', async (req, res) => {
     res.status(201).json(product);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+app.post('/contacts', async (req, res) => {
+  try {
+    const { subject, message, user } = req.body;
+
+    if (!subject || !message || !user || !user._id) {
+      return res.status(400).json({ message: 'Subject, message, and user ID are required' });
+    }
+
+    const newContact = new Contact({
+      userId: user._id,
+      subject,
+      messages: [
+        {
+          content: message,
+          sender: 'user',
+        },
+      ],
+    });
+
+    await newContact.save();
+    res.status(201).json(newContact);
+  } catch (err) {
+    console.error('Error creating contact:', err);
+    res.status(500).json({ message: 'Failed to create contact' });
+  }
+});
+
+// Admin replies to a contact query (only once)
+app.post('/contacts/:id/reply', authenticateAdmin, async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ message: 'Reply message is required' });
+    }
+
+    const contact = await Contact.findById(req.params.id);
+    
+    if (!contact) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+
+    if (contact.status !== 'open') {
+      return res.status(400).json({ message: 'Already replied to this query' });
+    }
+
+    contact.messages.push({
+      content: message,
+      sender: 'admin'
+    });
+    contact.status = 'answered';
+    await contact.save();
+
+    res.json(contact);
+  } catch (err) {
+    console.error('Error replying to contact:', err);
+    res.status(500).json({ message: 'Failed to reply to contact' });
+  }
+});
+
+// User submits feedback (only after admin reply)
+app.post('/contacts/:id/feedback', async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Valid rating (1-5) is required' });
+    }
+
+    const contact = await Contact.findById(req.params.id);
+    
+    if (!contact) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+
+    if (contact.status !== 'answered') {
+      return res.status(400).json({ message: 'Feedback only allowed after admin reply' });
+    }
+
+    if (contact.feedback) {
+      return res.status(400).json({ message: 'Feedback already submitted' });
+    }
+
+    contact.feedback = {
+      rating,
+      comment: comment || '',
+      submittedAt: new Date()
+    };
+    contact.status = 'closed';
+    await contact.save();
+
+    res.json(contact);
+  } catch (err) {
+    console.error('Error submitting feedback:', err);
+    res.status(500).json({ message: 'Failed to submit feedback' });
+  }
+});
+
+// Get user's contact history
+app.get('/contacts/:id', async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const contacts = await Contact.find({ userId })
+      .sort({ updatedAt: -1 });
+
+    res.status(200).json(contacts);
+  } catch (err) {
+    console.error('Error fetching contacts:', err);
+    res.status(500).json({ message: 'Failed to fetch contacts' });
+  }
+});
+
+// Admin gets all contacts
+app.get('/contacts/admin', authenticateAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    
+    const contacts = await Contact.find(filter)
+      .populate('userId', 'username email')
+      .sort({ updatedAt: -1 });
+    res.json(contacts);
+  } catch (err) {
+    console.error('Error fetching admin contacts:', err);
+    res.status(500).json({ message: 'Failed to fetch contacts' });
   }
 });
 
