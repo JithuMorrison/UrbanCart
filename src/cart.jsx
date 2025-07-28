@@ -196,60 +196,63 @@ const Cart = () => {
   };
 
   const handleSubmitPayment = async (e) => {
-    e.preventDefault();
-    setIsProcessing(true);
+  e.preventDefault();
+  setIsProcessing(true);
+  
+  try {
+    // Prepare order data
+    const order = {
+      items: cart.map(item => ({
+        productId: item.id,
+        productName: item.name,
+        quantityOrdered: item.quantitybuy,
+        price: parseFloat(item.priceAfterDiscount),
+        image: item.images?.[0] || 'https://via.placeholder.com/150'
+      })),
+      shippingAddress: {
+        street: formData.address,
+        city: formData.city,
+        country: formData.country
+      },
+      paymentMethod: formData.paymentMethod,
+      subtotal: parseFloat(calculateTotal()),
+      tax: parseFloat(calculateTax()),
+      total: parseFloat(calculateGrandTotal()),
+      status: 'processing'
+    };
+
+    // Submit order to backend
+    const response = await fetch(`http://localhost:3000/user/${user}/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order)
+    });
+
+    const data = await response.json();
     
-    try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Prepare order data
-      const order = {
-        items: cart.map(item => ({
-          productId: item.id,
-          productName: item.name,
-          quantityOrdered: item.quantitybuy,
-          price: parseFloat(item.priceAfterDiscount),
-          image: item.images?.[0] || 'https://via.placeholder.com/150'
-        })),
-        shippingAddress: {
-          street: formData.address,
-          city: formData.city,
-          country: formData.country
-        },
-        paymentMethod: formData.paymentMethod,
-        subtotal: parseFloat(calculateTotal()),
-        tax: parseFloat(calculateTax()),
-        total: parseFloat(calculateGrandTotal()),
-        status: 'processing'
-      };
-
-      // Submit order to backend
-      const response = await fetch(`http://localhost:3000/user/${user}/order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(order)
-      });
-
-      if (!response.ok) throw new Error('Failed to create order');
-
-      // Clear cart only after successful order creation
-      if (user) {
-        await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
-          method: 'POST'
-        });
-      }
-      localStorage.removeItem('cart');
-      setCart([]);
-      setCheckoutStep('complete');
-      navigate('/order-success');
-    } catch (error) {
-      console.error('Checkout failed:', error);
-      alert('Payment processing failed. Please try again.');
-    } finally {
-      setIsProcessing(false);
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to create order');
     }
-  };
+
+    // Clear cart in the frontend state
+    setCart([]);
+    localStorage.removeItem('cart');
+    
+    // Clear cart in backend if user is logged in
+    if (user) {
+      await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
+        method: 'POST'
+      });
+    }
+    
+    setCheckoutStep('complete');
+  } catch (error) {
+    console.error('Checkout failed:', error);
+    alert(`Checkout failed: ${error.message}`);
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   // Render functions for each step
   const renderCartItem = (item) => (

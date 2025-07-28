@@ -10,8 +10,28 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
+// MongoDB Connection
 mongoose.connect(process.env.DB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
+  .then(async () => {
+    console.log('MongoDB connected successfully');
+    
+    // Remove the problematic index if it exists
+    try {
+      const ordersCollection = mongoose.connection.db.collection('orders');
+      const indexes = await ordersCollection.indexes();
+      
+      const usernameIndex = indexes.find(index => 
+        index.key && index.key.username === 1
+      );
+      
+      if (usernameIndex) {
+        await ordersCollection.dropIndex('username_1');
+        console.log('Removed problematic username index from orders collection');
+      }
+    } catch (err) {
+      console.log('Error checking/removing indexes:', err.message);
+    }
+  })
   .catch((err) => console.log('MongoDB connection error: ', err));
 
 // Schemas
@@ -931,8 +951,14 @@ app.get('/user/:userId/order/:orderId', async (req, res) => {
 // Create new order (alternative to checkout)
 app.post('/user/:userId/order', async (req, res) => {
   try {
+    console.log('Incoming order data:', req.body);
     const userId = req.params.userId;
-    const { items, shippingAddress, paymentMethod, status = 'pending' } = req.body;
+    const { items, shippingAddress, paymentMethod } = req.body;
+
+    // Validate required fields
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: 'No items in order' });
+    }
 
     // Validate user exists
     const user = await User.findById(userId);
@@ -942,7 +968,6 @@ app.post('/user/:userId/order', async (req, res) => {
 
     // Validate products and calculate totals
     let subtotal = 0;
-    let shippingFee = 5.99; // Default shipping fee
     const validatedItems = [];
 
     for (const item of items) {
@@ -966,18 +991,14 @@ app.post('/user/:userId/order', async (req, res) => {
         productName: product.productName,
         quantityOrdered: item.quantityOrdered,
         price: item.price,
-        image: item.image || product.images[0]
+        image: item.image || product.images[0] || 'https://via.placeholder.com/150'
       });
     }
 
-    // Apply free shipping if subtotal > $50
-    if (subtotal > 50) {
-      shippingFee = 0;
-    }
-
-    // Calculate tax (10% for example)
+    // Calculate tax and total
     const tax = subtotal * 0.1;
-    const total = subtotal + shippingFee + tax;
+    const shippingFee = subtotal > 50 ? 0 : 5.99;
+    const total = subtotal + tax + shippingFee;
 
     // Create the order
     const order = new Order({
@@ -989,11 +1010,9 @@ app.post('/user/:userId/order', async (req, res) => {
       shippingFee,
       tax,
       total,
-      status,
-      statusHistory: [{ status }]
+      status: 'processing'
     });
 
-    // Save the order
     await order.save();
 
     // Update product quantities
@@ -1003,37 +1022,18 @@ app.post('/user/:userId/order', async (req, res) => {
       });
     }
 
-    // Add order to user's order history
+    // Clear user's cart
+    user.cart = [];
     user.orders.push(order._id);
     await user.save();
-
-    // Send order confirmation email
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: user.email,
-        subject: 'Your Order Confirmation',
-        html: `
-          <h1>Thank you for your order, ${user.firstName || user.username}!</h1>
-          <p>Order #${order._id}</p>
-          <p>Status: ${status}</p>
-          <p>Total: $${total.toFixed(2)}</p>
-          <p>Items:</p>
-          <ul>
-            ${validatedItems.map(item => `
-              <li>${item.productName} - ${item.quantityOrdered} x $${item.price.toFixed(2)}</li>
-            `).join('')}
-          </ul>
-        `
-      });
-    } catch (emailErr) {
-      console.error('Failed to send order confirmation email:', emailErr);
-    }
 
     res.status(201).json(order);
   } catch (err) {
     console.error('Error creating order:', err);
-    res.status(500).json({ message: 'Failed to create order', error: err.message });
+    res.status(500).json({ 
+      message: 'Failed to create order',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
