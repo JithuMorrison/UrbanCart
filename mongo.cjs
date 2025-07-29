@@ -1165,6 +1165,52 @@ app.get('/admin/orders/stats', authenticateAdmin, async (req, res) => {
   }
 });
 
+app.put('/admin/order/:orderId/status', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, note } = req.body;
+    const order = await Order.findById(req.params.orderId);
+    
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    
+    order.status = status;
+    order.statusHistory.push({ status, note });
+    
+    if (status === 'shipped') {
+      order.trackingNumber = `TRK${Date.now().toString().slice(-8)}`;
+      order.carrier = 'Standard Shipping';
+    }
+    
+    await order.save();
+    
+    // Send notification to user
+    const user = await User.findById(order.userId);
+    if (user) {
+      user.notifications.push({
+        title: 'Order Update',
+        message: `Your order #${order._id} status has been updated to ${status}`,
+        type: 'order'
+      });
+      await user.save();
+      
+      // Send email notification
+      try {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: user.email,
+          subject: `Order #${order._id} Update`,
+          html: `<p>Your order status has been updated to <strong>${status}</strong></p>`
+        });
+      } catch (emailErr) {
+        console.error('Status update email failed:', emailErr);
+      }
+    }
+    
+    res.json(order);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 app.put('/admin/order/:orderId/viewed', authenticateAdmin, async (req, res) => {
   try {
     const order = await Order.findByIdAndUpdate(
@@ -1178,114 +1224,16 @@ app.put('/admin/order/:orderId/viewed', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Enhanced GET single order endpoint
 app.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId)
-      .populate('userId', 'username email phone address')
-      .populate('items.productId', 'name price images sku variants');
+      .populate('userId', 'username email address')
+      .populate('items.productId', 'name price images');
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Transform items to include productName if not already present
-    const transformedOrder = {
-      ...order.toObject(),
-      items: order.items.map(item => ({
-        ...item,
-        productName: item.productName || item.productId?.name || 'Product'
-      }))
-    };
-
-    res.json({ success: true, data: transformedOrder });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Enhanced status update endpoint
-app.put('/admin/order/:orderId/status', authenticateAdmin, async (req, res) => {
-  try {
-    const { status, note } = req.body;
-    const order = await Order.findById(req.params.orderId);
-    
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    // Validate status transition
-    const validTransitions = {
-      pending: ['processing', 'cancelled'],
-      processing: ['shipped', 'cancelled'],
-      shipped: ['delivered'],
-      delivered: [],
-      cancelled: []
-    };
-
-    if (!validTransitions[order.status].includes(status)) {
-      return res.status(400).json({ 
-        success: false,
-        message: `Invalid status transition from ${order.status} to ${status}`
-      });
-    }
-
-    // Update order status
-    order.status = status;
-    order.statusHistory.push({ 
-      status, 
-      note: note || '', 
-      changedBy: req.admin._id,
-      timestamp: new Date()
-    });
-    
-    // Generate tracking if shipped
-    if (status === 'shipped' && !order.trackingNumber) {
-      order.trackingNumber = `TRK${Date.now().toString().slice(-8)}`;
-      order.carrier = 'Standard Shipping';
-      order.shippedDate = new Date();
-    }
-
-    // Set delivered date if applicable
-    if (status === 'delivered') {
-      order.deliveredDate = new Date();
-    }
-
-    await order.save();
-    
-    // Send notification to user
-    if (order.userId) {
-      const user = await User.findById(order.userId);
-      if (user) {
-        user.notifications.push({
-          title: 'Order Update',
-          message: `Your order #${order._id} is now ${status}`,
-          type: 'order',
-          link: `/orders/${order._id}`
-        });
-        await user.save();
-        
-        // Send email notification
-        try {
-          await transporter.sendMail({
-            from: process.env.EMAIL_FROM,
-            to: user.email,
-            subject: `Order #${order._id.slice(-6)} Status Update`,
-            html: `
-              <p>Your order status has been updated to <strong>${status}</strong></p>
-              ${status === 'shipped' ? `
-                <p>Tracking Number: ${order.trackingNumber}</p>
-                <p>Carrier: ${order.carrier}</p>
-              ` : ''}
-              ${note ? `<p>Note: ${note}</p>` : ''}
-            `
-          });
-        } catch (emailErr) {
-          console.error('Email notification failed:', emailErr);
-        }
-      }
-    }
-    
     res.json({ success: true, data: order });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

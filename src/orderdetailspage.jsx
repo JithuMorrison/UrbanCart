@@ -96,7 +96,7 @@ const OrderDetailsPage = () => {
         }
       );
 
-      if (response._id) {
+      if (response) {
         setOrder(response);
         setStatusUpdate({ status: '', note: '' });
       }
@@ -180,6 +180,7 @@ const OrderDetailsPage = () => {
                     )}
                   </div>
                   <div className="ml-4 flex-1">
+                    {console.log(item)}
                     <div className="flex justify-between">
                       <h3 className="font-medium">{item.productName || 'Product'}</h3>
                       <span className="font-medium">
