@@ -1224,6 +1224,22 @@ app.put('/admin/order/:orderId/viewed', authenticateAdmin, async (req, res) => {
   }
 });
 
+app.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId)
+      .populate('userId', 'username email address')
+      .populate('items.productId', 'name price images');
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    res.json({ success: true, data: order });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Discount Routes
 app.post('/admin/discounts', authenticateAdmin, async (req, res) => {
   try {

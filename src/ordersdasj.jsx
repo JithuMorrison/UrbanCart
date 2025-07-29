@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { FiClock, FiCheckCircle, FiTruck, FiXCircle } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
 
 const OrdersDashboard = () => {
   const { authFetch } = useOutletContext();
@@ -12,6 +13,7 @@ const OrdersDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -98,7 +100,7 @@ const OrdersDashboard = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {orders.length > 0 ? (
                 orders.map((order) => (
-                  <tr key={order._id} className="hover:bg-gray-50">
+                  <tr key={order._id} onClick={() => navigate(`/admin/dashboard/orders/${order._id}`)} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       #{order._id.slice(-6).toUpperCase()}
                     </td>
