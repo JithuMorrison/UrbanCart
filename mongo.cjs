@@ -1277,22 +1277,97 @@ app.put('/admin/discounts/:id', authenticateAdmin, async (req, res) => {
 app.get('/admin/analytics', authenticateAdmin, async (req, res) => {
   try {
     const { period } = req.query;
-    let dateFilter = {};
-    
+    const now = new Date();
+    let startDate = null;
+
     if (period === 'week') {
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-      dateFilter = { date: { $gte: oneWeekAgo } };
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
     } else if (period === 'month') {
-      const oneMonthAgo = new Date();
-      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      dateFilter = { date: { $gte: oneMonthAgo } };
+      startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 1);
+    }
+
+    const dateFilter = startDate ? { orderDate: { $gte: startDate } } : {};
+
+    // Get daily data for the period
+    const dailyData = [];
+    const currentDate = new Date(startDate);
+    
+    while (currentDate <= now) {
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(currentDate);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      // Orders for this day
+      const dayOrders = await Order.find({
+        orderDate: { $gte: dayStart, $lte: dayEnd }
+      }).populate('items.productId');
+      
+      // Calculate day totals
+      const dayRevenue = dayOrders.reduce((sum, order) => sum + order.total, 0);
+      const dayOrdersCount = dayOrders.length;
+      
+      // New users for this day
+      const dayNewUsers = await User.countDocuments({
+        joinDate: { $gte: dayStart, $lte: dayEnd }
+      });
+      
+      // Popular products for this day
+      const productSalesMap = new Map();
+      dayOrders.forEach(order => {
+        order.items.forEach(item => {
+          const id = item.productId?._id?.toString();
+          if (!id) return;
+          
+          const existing = productSalesMap.get(id) || { 
+            product: item.productId, 
+            sales: 0 
+          };
+          existing.sales += item.quantityOrdered;
+          productSalesMap.set(id, existing);
+        });
+      });
+      
+      const dayPopularProducts = Array.from(productSalesMap.values())
+        .sort((a, b) => b.sales - a.sales)
+        .slice(0, 5)
+        .map(p => ({
+          productId: p.product._id,
+          productName: p.product.productName,
+          sales: p.sales
+        }));
+      
+      // Categories for this day
+      const categoryMap = new Map();
+      productSalesMap.forEach(({ product, sales }) => {
+        const cat = product.category;
+        if (!cat) return;
+        categoryMap.set(cat, (categoryMap.get(cat) || 0) + sales);
+      });
+      
+      const dayCategories = Array.from(categoryMap.entries())
+        .map(([name, sales]) => ({ name, sales }));
+      
+      dailyData.push({
+        date: new Date(currentDate),
+        totalRevenue: dayRevenue,
+        totalOrders: dayOrdersCount,
+        newUsers: dayNewUsers,
+        popularProducts: dayPopularProducts,
+        categories: dayCategories
+      });
+      
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
-    const analytics = await Analytics.find(dateFilter).sort({ date: -1 });
-    res.json(analytics);
+    res.json(dailyData);
+
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('Error fetching analytics:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
