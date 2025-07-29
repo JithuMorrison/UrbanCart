@@ -1,3 +1,4 @@
+import { set } from 'mongoose';
 import React, { useState, useEffect } from 'react';
 import { FiPlus, FiTrash2, FiEdit, FiTag } from 'react-icons/fi';
 
@@ -34,6 +35,7 @@ const ProductManagement = () => {
         
         setProducts(productsData);
         setCategories(categoriesData.length ? categoriesData : ["Fruits", "Electronics", "Clothing", "Books"]);
+        setCategories(["Fruits", "Electronics", "Clothing", "Books"]);
         setLoading(false);
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -94,11 +96,7 @@ const ProductManagement = () => {
 
   const fetchData = async () => {
     try {
-      const response = await fetch('http://localhost:3000/admin/products', {
-        headers: {
-          'x-user-id': currentUser._id
-        }
-      });
+      const response = await fetch('http://localhost:3000/products');
       
       if (!response.ok) {
         throw new Error('Failed to fetch products');
@@ -107,6 +105,7 @@ const ProductManagement = () => {
       const data = await response.json();
       setProducts(data);
       setLoading(false);
+      setShowForm(true);
     } catch (err) {
       console.error('Error:', err);
       setLoading(false);
@@ -137,6 +136,8 @@ const ProductManagement = () => {
       }
       
       alert(currentProduct ? 'Product updated successfully' : 'Product added successfully');
+      fetchData();
+      resetForm();
     } catch (err) {
       console.error('Error:', err);
       alert(err.message);

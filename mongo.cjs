@@ -1537,10 +1537,6 @@ app.post('/contacts/:id/feedback', async (req, res) => {
       return res.status(400).json({ message: 'Feedback only allowed after admin reply' });
     }
 
-    if (contact.feedback) {
-      return res.status(400).json({ message: 'Feedback already submitted' });
-    }
-
     contact.feedback = {
       rating,
       comment: comment || '',
