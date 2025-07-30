@@ -362,6 +362,73 @@ app.put('/user/:id/address', async (req, res) => {
   }
 });
 
+// Address routes (should already exist in your backend)
+app.get('/user/:userId/addresses', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user.addresses);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post('/user/:userId/addresses', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const newAddress = req.body;
+    
+    // If this is being set as default, unset any existing default
+    if (newAddress.isDefault) {
+      user.addresses.forEach(addr => {
+        addr.isDefault = false;
+      });
+    }
+
+    user.addresses.push(newAddress);
+    await user.save();
+    res.status(201).json(user.addresses);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete('/user/:userId/addresses/:addressId', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const addressId = req.params.addressId;
+    user.addresses = user.addresses.filter(addr => addr._id !== addressId);
+    
+    await user.save();
+    res.json(user.addresses);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.patch('/user/:userId/addresses/:addressId/set-default', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const addressId = req.params.addressId;
+    
+    // Unset all defaults first
+    user.addresses.forEach(addr => {
+      addr.isDefault = addr._id === addressId;
+    });
+
+    await user.save();
+    res.json(user.addresses);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 // Wishlist Routes
 // Update these wishlist routes
 

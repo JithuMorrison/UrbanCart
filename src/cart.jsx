@@ -30,6 +30,9 @@ const Cart = () => {
     cvv: ''
   });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [userAddresses, setUserAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [useSavedAddress, setUseSavedAddress] = useState(false);
   const navigate = useNavigate();
 
   // Fetch cart data
@@ -85,6 +88,47 @@ const Cart = () => {
 
     fetchCart();
   }, [user]);
+
+  useEffect(() => {
+    const fetchUserAddresses = async () => {
+      if (!user) return;
+      
+      try {
+        const response = await fetch(`http://localhost:3000/user/${user}/addresses`);
+        if (!response.ok) throw new Error('Failed to fetch addresses');
+        
+        const addresses = await response.json();
+        setUserAddresses(addresses);
+        
+        // Set default address if available
+        const defaultAddress = addresses.find(addr => addr.isDefault);
+        if (defaultAddress) {
+          setSelectedAddressId(defaultAddress._id);
+        }
+      } catch (err) {
+        console.error('Error fetching addresses:', err);
+      }
+    };
+
+    if (checkoutStep === 'details' || checkoutStep === 'cart') {
+      fetchUserAddresses();
+    }
+  }, [user, checkoutStep]);
+
+  const handleUseSavedAddress = (addressId) => {
+    const selectedAddress = userAddresses.find(addr => addr._id === addressId);
+    if (selectedAddress) {
+      setFormData(prev => ({
+        ...prev,
+        address: selectedAddress.street,
+        city: selectedAddress.city,
+        state: selectedAddress.state,
+        zipCode: selectedAddress.zipCode,
+        country: selectedAddress.country
+      }));
+      setCheckoutStep('payment');
+    }
+  };
 
   // Helper functions
   const calculatePriceAfterDiscount = (price, discount) => {
@@ -190,69 +234,68 @@ const Cart = () => {
     });
   };
 
-  const handleSubmitDetails = (e) => {
-    e.preventDefault();
-    setCheckoutStep('payment');
-  };
-
   const handleSubmitPayment = async (e) => {
-  e.preventDefault();
-  setIsProcessing(true);
-  
-  try {
-    // Prepare order data
-    const order = {
-      items: cart.map(item => ({
-        productId: item.id,
-        productName: item.name,
-        quantityOrdered: item.quantitybuy,
-        price: parseFloat(item.priceAfterDiscount),
-        image: item.images?.[0] || 'https://via.placeholder.com/150'
-      })),
-      shippingAddress: {
-        street: formData.address,
-        city: formData.city,
-        country: formData.country
-      },
-      paymentMethod: formData.paymentMethod,
-      subtotal: parseFloat(calculateTotal()),
-      tax: parseFloat(calculateTax()),
-      total: parseFloat(calculateGrandTotal()),
-      status: 'processing'
-    };
-
-    // Submit order to backend
-    const response = await fetch(`http://localhost:3000/user/${user}/order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(order)
-    });
-
-    const data = await response.json();
+    e.preventDefault();
+    setIsProcessing(true);
     
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to create order');
-    }
+    try {
+      // Prepare order data
+      const order = {
+        items: cart.map(item => ({
+          productId: item.id,
+          productName: item.name,
+          quantityOrdered: item.quantitybuy,
+          price: parseFloat(item.priceAfterDiscount),
+          image: item.images?.[0] || 'https://via.placeholder.com/150'
+        })),
+        shippingAddress: {
+          street: formData.address,
+          city: formData.city,
+          country: formData.country
+        },
+        customerInfo: {
+          name: formData.name,
+          email: formData.email
+        },
+        paymentMethod: formData.paymentMethod,
+        subtotal: parseFloat(calculateTotal()),
+        tax: parseFloat(calculateTax()),
+        total: parseFloat(calculateGrandTotal()),
+        status: 'processing'
+      };
 
-    // Clear cart in the frontend state
-    setCart([]);
-    localStorage.removeItem('cart');
-    
-    // Clear cart in backend if user is logged in
-    if (user) {
-      await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
-        method: 'POST'
+      // Submit order to backend
+      const response = await fetch(`http://localhost:3000/user/${user}/order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order)
       });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to create order');
+      }
+
+      // Clear cart in the frontend state
+      setCart([]);
+      localStorage.removeItem('cart');
+      
+      // Clear cart in backend if user is logged in
+      if (user) {
+        await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
+          method: 'POST'
+        });
+      }
+      
+      setCheckoutStep('complete');
+    } catch (error) {
+      console.error('Checkout failed:', error);
+      alert(`Checkout failed: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
     }
-    
-    setCheckoutStep('complete');
-  } catch (error) {
-    console.error('Checkout failed:', error);
-    alert(`Checkout failed: ${error.message}`);
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
 
   // Render functions for each step
   const renderCartItem = (item) => (
@@ -441,7 +484,10 @@ const Cart = () => {
           <FiUser className="mr-2" /> Shipping Information
         </h2>
 
-        <form onSubmit={handleSubmitDetails}>
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          setCheckoutStep('payment');
+        }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="form-group">
               <label className="block text-gray-700 mb-2">Full Name *</label>
@@ -471,48 +517,154 @@ const Cart = () => {
             <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
               <FiMapPin className="mr-2" /> Shipping Address
             </h3>
-            <div className="space-y-4">
-              <div className="form-group">
-                <label className="block text-gray-700 mb-2">Street Address *</label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
-                  required
-                />
+            
+            {userAddresses.length > 0 && (
+              <div className="mb-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={useSavedAddress}
+                    onChange={(e) => {
+                      setUseSavedAddress(e.target.checked);
+                      if (!e.target.checked) {
+                        // Clear address fields when unchecking
+                        setFormData(prev => ({
+                          ...prev,
+                          address: '',
+                          city: '',
+                          state: '',
+                          zipCode: '',
+                          country: 'US'
+                        }));
+                      } else if (selectedAddressId) {
+                        // Populate with selected address
+                        const selectedAddress = userAddresses.find(addr => addr._id === selectedAddressId);
+                        if (selectedAddress) {
+                          setFormData(prev => ({
+                            ...prev,
+                            address: selectedAddress.street,
+                            city: selectedAddress.city,
+                            state: selectedAddress.state,
+                            zipCode: selectedAddress.zipCode,
+                            country: selectedAddress.country
+                          }));
+                        }
+                      }
+                    }}
+                    className="mr-2"
+                  />
+                  <span>Use saved address</span>
+                </label>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            )}
+
+            {useSavedAddress && userAddresses.length > 0 ? (
+              <div className="mb-6">
+                <label className="block text-gray-700 mb-2">Select Address *</label>
+                <select
+                  value={selectedAddressId || ''}
+                  onChange={(e) => {
+                    const addressId = e.target.value;
+                    setSelectedAddressId(addressId);
+                    const selectedAddress = userAddresses.find(addr => addr._id === addressId);
+                    if (selectedAddress) {
+                      setFormData(prev => ({
+                        ...prev,
+                        address: selectedAddress.street,
+                        city: selectedAddress.city,
+                        state: selectedAddress.state,
+                        zipCode: selectedAddress.zipCode,
+                        country: selectedAddress.country
+                      }));
+                    }
+                  }}
+                  className="w-full px-4 py-2 border rounded-lg mb-4 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                  required
+                >
+                  <option value="">Select an address</option>
+                  {userAddresses.map(address => (
+                    <option key={address._id} value={address._id}>
+                      {address.street}, {address.city}, {address.country} 
+                      {address.isDefault && ' (Default)'}
+                    </option>
+                  ))}
+                </select>
+                
+                {selectedAddressId && (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-medium mb-2">Selected Address:</h4>
+                    <p>
+                      {formData.address}<br />
+                      {formData.city}, {formData.state} {formData.zipCode}<br />
+                      {formData.country}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
                 <div className="form-group">
-                  <label className="block text-gray-700 mb-2">City *</label>
+                  <label className="block text-gray-700 mb-2">Street Address *</label>
                   <input
                     type="text"
-                    name="city"
-                    value={formData.city}
+                    name="address"
+                    value={formData.address}
                     onChange={handleInputChange}
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label className="block text-gray-700 mb-2">Country *</label>
-                  <select
-                    name="country"
-                    value={formData.country}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
-                    required
-                  >
-                    <option value="US">United States</option>
-                    <option value="UK">United Kingdom</option>
-                    <option value="CA">Canada</option>
-                    <option value="AU">Australia</option>
-                    <option value="DE">Germany</option>
-                  </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="form-group">
+                    <label className="block text-gray-700 mb-2">City *</label>
+                    <input
+                      type="text"
+                      name="city"
+                      value={formData.city}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="block text-gray-700 mb-2">State/Province</label>
+                    <input
+                      type="text"
+                      name="state"
+                      value={formData.state}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="block text-gray-700 mb-2">ZIP/Postal Code</label>
+                    <input
+                      type="text"
+                      name="zipCode"
+                      value={formData.zipCode}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="block text-gray-700 mb-2">Country *</label>
+                    <select
+                      name="country"
+                      value={formData.country}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                      required
+                    >
+                      <option value="US">United States</option>
+                      <option value="UK">United Kingdom</option>
+                      <option value="CA">Canada</option>
+                      <option value="AU">Australia</option>
+                      <option value="DE">Germany</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="bg-gray-50 p-4 rounded-lg mb-6">
@@ -556,10 +708,10 @@ const Cart = () => {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm p-6">
         <button 
-          onClick={() => setCheckoutStep('details')}
+          onClick={() => setCheckoutStep(userAddresses.length > 0 ? 'address' : 'details')}
           className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6"
         >
-          <FiArrowLeft className="mr-1" /> Back to Details
+          <FiArrowLeft className="mr-1" /> Back to {userAddresses.length > 0 ? 'Address' : 'Details'}
         </button>
 
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
@@ -568,6 +720,25 @@ const Cart = () => {
 
         <form onSubmit={handleSubmitPayment}>
           <div className="mb-6">
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <FiUser className="mr-2" /> Customer Information
+              </h3>
+              <div className="space-y-2">
+                <p><span className="text-gray-600">Name:</span> {formData.name}</p>
+                <p><span className="text-gray-600">Email:</span> {formData.email}</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <FiMapPin className="mr-2" /> Shipping Address
+              </h3>
+              <p>{formData.address}</p>
+              <p>{formData.city}, {formData.state} {formData.zipCode}</p>
+              <p>{formData.country}</p>
+            </div>
+
             <label className="block text-gray-700 mb-2">Payment Method *</label>
             <select
               name="paymentMethod"
