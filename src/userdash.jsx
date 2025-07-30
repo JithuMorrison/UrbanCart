@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FiUser, FiShoppingBag, FiHeart, FiClock, FiCheckCircle, FiTruck } from 'react-icons/fi';
+import { 
+  FiUser, 
+  FiShoppingBag, 
+  FiHeart, 
+  FiClock, 
+  FiCheckCircle, 
+  FiTruck, 
+  FiEdit, 
+  FiTrash2, 
+  FiPlus, 
+  FiLock, 
+  FiMail, 
+  FiPhone, 
+  FiMapPin 
+} from 'react-icons/fi';
 
 const UserDashboard = () => {
   const [userData, setUserData] = useState(null);
@@ -8,6 +22,30 @@ const UserDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const userId = localStorage.getItem('userId');
   const navigate = useNavigate();
+
+  // Address Management
+  const [addresses, setAddresses] = useState([]);
+  const [newAddress, setNewAddress] = useState({
+    street: '',
+    city: '',
+    state: '',
+    zipCode: '',
+    country: '',
+    isDefault: false
+  });
+  const [editingAddressId, setEditingAddressId] = useState(null);
+
+  // Settings
+  const [settings, setSettings] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -25,6 +63,238 @@ const UserDashboard = () => {
     if (userId) fetchUserData();
     else navigate('/login');
   }, [userId, navigate]);
+
+  // Fetch addresses when addresses tab is active
+  useEffect(() => {
+    if (activeTab === 'addresses' && userData) {
+      setAddresses(userData.addresses || []);
+    }
+  }, [activeTab, userData]);
+
+  // Set settings when settings tab is active
+  useEffect(() => {
+    if (activeTab === 'settings' && userData) {
+      setSettings({
+        firstName: userData.firstName || '',
+        lastName: userData.lastName || '',
+        email: userData.email || '',
+        phone: userData.phone || '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+    }
+  }, [activeTab, userData]);
+
+  const getStatusIcon = (status) => {
+    switch(status) {
+      case 'pending': return <FiClock className="text-yellow-500" />;
+      case 'processing': return <FiClock className="text-blue-500" />;
+      case 'shipped': return <FiTruck className="text-purple-500" />;
+      case 'delivered': return <FiCheckCircle className="text-green-500" />;
+      default: return <FiShoppingBag />;
+    }
+  };
+
+  // Handle address input change
+  const handleAddressChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setNewAddress({
+      ...newAddress,
+      [name]: type === 'checkbox' ? checked : value
+    });
+  };
+
+  // Handle settings input change
+  const handleSettingsChange = (e) => {
+    const { name, value } = e.target;
+    setSettings({
+      ...settings,
+      [name]: value
+    });
+  };
+
+  // Add new address
+  const handleAddAddress = async () => {
+    try {
+      const response = await fetch(`http://localhost:3000/user/${userId}/address`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          addresses: [...addresses, newAddress]  // remove _id from here
+        }),
+      });
+      
+      const updatedUser = await response.json();
+      setAddresses(updatedUser.addresses);
+      setNewAddress({
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        country: '',
+        isDefault: false
+      });
+    } catch (err) {
+      console.error('Error adding address:', err);
+    }
+  };
+
+  // Update address
+  const handleUpdateAddress = async () => {
+    try {
+      const updatedAddresses = addresses.map(addr => 
+        addr._id === editingAddressId ? newAddress : addr
+      );
+      
+      const response = await fetch(`http://localhost:3000/user/${userId}/address`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          addresses: updatedAddresses
+        }),
+      });
+      
+      const updatedUser = await response.json();
+      setAddresses(updatedUser.addresses);
+      setEditingAddressId(null);
+      setNewAddress({
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        country: '',
+        isDefault: false
+      });
+    } catch (err) {
+      console.error('Error updating address:', err);
+    }
+  };
+
+  // Delete address
+  const handleDeleteAddress = async (addressId) => {
+    try {
+      const updatedAddresses = addresses.filter(addr => addr._id !== addressId);
+      
+      const response = await fetch(`http://localhost:3000/user/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          addresses: updatedAddresses
+        }),
+      });
+      
+      const updatedUser = await response.json();
+      setAddresses(updatedUser.addresses);
+    } catch (err) {
+      console.error('Error deleting address:', err);
+    }
+  };
+
+  // Set default address
+  const handleSetDefaultAddress = async (addressId) => {
+    try {
+      const updatedAddresses = addresses.map(addr => ({
+        ...addr,
+        isDefault: addr._id === addressId
+      }));
+      
+      const response = await fetch(`http://localhost:3000/user/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          addresses: updatedAddresses
+        }),
+      });
+      
+      const updatedUser = await response.json();
+      console.log('Default address set:', updatedUser);
+      setAddresses(updatedUser.addresses);
+    } catch (err) {
+      console.error('Error setting default address:', err);
+    }
+  };
+
+  // Start editing an address
+  const startEditingAddress = (address) => {
+    setEditingAddressId(address._id);
+    setNewAddress({ ...address });
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setEditingAddressId(null);
+    setNewAddress({
+      street: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      country: '',
+      isDefault: false
+    });
+  };
+
+  // Update user settings
+  const handleUpdateSettings = async (e) => {
+    e.preventDefault();
+    
+    // Validate passwords if changing
+    if (settings.newPassword && settings.newPassword !== settings.confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    
+    try {
+      const updateData = {
+        firstName: settings.firstName,
+        lastName: settings.lastName,
+        phone: settings.phone
+      };
+      
+      // Only include password if changing
+      if (settings.newPassword) {
+        updateData.currentPassword = settings.currentPassword;
+        updateData.newPassword = settings.newPassword;
+      }
+      
+      const response = await fetch(`http://localhost:3000/user/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      });
+      
+      const updatedUser = await response.json();
+      
+      // Update local storage if email changed
+      if (updatedUser.email !== userData.email) {
+        localStorage.setItem('userEmail', updatedUser.email);
+      }
+      
+      // Reset password fields
+      setSettings({
+        ...settings,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+      setPasswordError('');
+      
+      alert('Settings updated successfully');
+    } catch (err) {
+      console.error('Error updating settings:', err);
+      setPasswordError('Failed to update settings. Please check your current password.');
+    }
+  };
 
   if (loading) {
     return <div className="text-center py-12">Loading your dashboard...</div>;
@@ -44,16 +314,6 @@ const UserDashboard = () => {
       </div>
     );
   }
-
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'pending': return <FiClock className="text-yellow-500" />;
-      case 'processing': return <FiClock className="text-blue-500" />;
-      case 'shipped': return <FiTruck className="text-purple-500" />;
-      case 'delivered': return <FiCheckCircle className="text-green-500" />;
-      default: return <FiShoppingBag />;
-    }
-  };
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -311,7 +571,279 @@ const UserDashboard = () => {
             </div>
           )}
           
-          {/* Other tabs would be implemented similarly */}
+          {/* Addresses Tab */}
+          {activeTab === 'addresses' && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold mb-6">Your Addresses</h2>
+              
+              {/* Address List */}
+              <div className="space-y-4 mb-6">
+                {addresses.length > 0 ? (
+                  addresses.map(address => (
+                    <div key={address._id} className="border rounded-lg p-4 relative">
+                      {address.isDefault && (
+                        <span className="absolute top-2 right-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                          Default
+                        </span>
+                      )}
+                      <div className="flex items-start">
+                        <FiMapPin className="text-gray-500 mt-1 mr-2" />
+                        <div>
+                          <p className="font-medium">{address.street}</p>
+                          <p>{address.city}, {address.state} {address.zipCode}</p>
+                          <p>{address.country}</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-end mt-2 space-x-2">
+                        {!address.isDefault && (
+                          <button
+                            onClick={() => handleSetDefaultAddress(address._id)}
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                          >
+                            Set as Default
+                          </button>
+                        )}
+                        <button
+                          onClick={() => startEditingAddress(address)}
+                          className="text-gray-600 hover:text-gray-800 text-sm"
+                        >
+                          <FiEdit className="inline mr-1" /> Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAddress(address._id)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          <FiTrash2 className="inline mr-1" /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-500">You haven't saved any addresses yet.</p>
+                )}
+              </div>
+              
+              {/* Add/Edit Address Form */}
+              <div className="border-t pt-4">
+                <h3 className="text-lg font-medium mb-4">
+                  {editingAddressId ? 'Edit Address' : 'Add New Address'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                    <input
+                      type="text"
+                      name="street"
+                      value={newAddress.street}
+                      onChange={handleAddressChange}
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="123 Main St"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      name="city"
+                      value={newAddress.city}
+                      onChange={handleAddressChange}
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="New York"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">State/Province</label>
+                    <input
+                      type="text"
+                      name="state"
+                      value={newAddress.state}
+                      onChange={handleAddressChange}
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="NY"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ZIP/Postal Code</label>
+                    <input
+                      type="text"
+                      name="zipCode"
+                      value={newAddress.zipCode}
+                      onChange={handleAddressChange}
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="10001"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <input
+                      type="text"
+                      name="country"
+                      value={newAddress.country}
+                      onChange={handleAddressChange}
+                      className="w-full px-3 py-2 border rounded-md"
+                      placeholder="United States"
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      name="isDefault"
+                      checked={newAddress.isDefault}
+                      onChange={handleAddressChange}
+                      id="defaultAddress"
+                      className="mr-2"
+                    />
+                    <label htmlFor="defaultAddress" className="text-sm text-gray-700">
+                      Set as default shipping address
+                    </label>
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-2">
+                  {editingAddressId && (
+                    <button
+                      onClick={cancelEditing}
+                      className="px-4 py-2 border rounded-md text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    onClick={editingAddressId ? handleUpdateAddress : handleAddAddress}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    disabled={!newAddress.street || !newAddress.city || !newAddress.country}
+                  >
+                    {editingAddressId ? 'Update Address' : 'Add Address'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Settings Tab */}
+          {activeTab === 'settings' && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold mb-6">Account Settings</h2>
+              
+              <form onSubmit={handleUpdateSettings}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                    <div className="relative">
+                      <FiUser className="absolute left-3 top-3 text-gray-400" />
+                      <input
+                        type="text"
+                        name="firstName"
+                        value={settings.firstName}
+                        onChange={handleSettingsChange}
+                        className="w-full pl-10 pr-3 py-2 border rounded-md"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                    <div className="relative">
+                      <FiUser className="absolute left-3 top-3 text-gray-400" />
+                      <input
+                        type="text"
+                        name="lastName"
+                        value={settings.lastName}
+                        onChange={handleSettingsChange}
+                        className="w-full pl-10 pr-3 py-2 border rounded-md"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <div className="relative">
+                      <FiMail className="absolute left-3 top-3 text-gray-400" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={settings.email}
+                        onChange={handleSettingsChange}
+                        className="w-full pl-10 pr-3 py-2 border rounded-md bg-gray-100"
+                        readOnly
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <div className="relative">
+                      <FiPhone className="absolute left-3 top-3 text-gray-400" />
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={settings.phone}
+                        onChange={handleSettingsChange}
+                        className="w-full pl-10 pr-3 py-2 border rounded-md"
+                        placeholder="+1 (123) 456-7890"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="border-t pt-6 mb-6">
+                  <h3 className="text-lg font-medium mb-4">Change Password</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                      <div className="relative">
+                        <FiLock className="absolute left-3 top-3 text-gray-400" />
+                        <input
+                          type="password"
+                          name="currentPassword"
+                          value={settings.currentPassword}
+                          onChange={handleSettingsChange}
+                          className="w-full pl-10 pr-3 py-2 border rounded-md"
+                          placeholder="Enter current password"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                      <div className="relative">
+                        <FiLock className="absolute left-3 top-3 text-gray-400" />
+                        <input
+                          type="password"
+                          name="newPassword"
+                          value={settings.newPassword}
+                          onChange={handleSettingsChange}
+                          className="w-full pl-10 pr-3 py-2 border rounded-md"
+                          placeholder="Enter new password"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+                      <div className="relative">
+                        <FiLock className="absolute left-3 top-3 text-gray-400" />
+                        <input
+                          type="password"
+                          name="confirmPassword"
+                          value={settings.confirmPassword}
+                          onChange={handleSettingsChange}
+                          className="w-full pl-10 pr-3 py-2 border rounded-md"
+                          placeholder="Confirm new password"
+                        />
+                      </div>
+                    </div>
+                    {passwordError && (
+                      <p className="text-red-500 text-sm">{passwordError}</p>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </div>

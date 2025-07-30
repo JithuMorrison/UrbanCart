@@ -35,10 +35,7 @@ const Header = () => {
         <nav className="hidden md:flex space-x-6">
           <Link to="/" className="text-gray-600 hover:text-blue-600">Home</Link>
           <Link to="/shop" className="text-gray-600 hover:text-blue-600">Shop</Link>
-          <Link to="/categories" className="text-gray-600 hover:text-blue-600">Categories</Link>
-          <Link to="/about" className="text-gray-600 hover:text-blue-600">About</Link>
           <Link to="/contact" className="text-gray-600 hover:text-blue-600">Contact</Link>
-          {userId && <Link to="/orders" className="text-gray-600 hover:text-blue-600">My Orders</Link>}
         </nav>
         
         <div className="flex items-center space-x-4">

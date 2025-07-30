@@ -318,13 +318,46 @@ app.get('/user/:id', async (req, res) => {
 
 app.put('/user/:id', async (req, res) => {
   try {
+    console.log('Hi');
     const updatedUser = await User.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true }
     );
+    console.log('User updated:', updatedUser);
     res.json(updatedUser);
   } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put('/user/:id/address', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const incomingAddresses = req.body.addresses;
+
+    // Filter new and existing separately
+    const existingAddresses = user.addresses.map(addr => addr._id.toString());
+    const updatedAddresses = [];
+
+    for (const addr of incomingAddresses) {
+      if (addr._id && existingAddresses.includes(addr._id)) {
+        // Modify existing address
+        const index = user.addresses.findIndex(a => a._id.toString() === addr._id);
+        if (index !== -1) user.addresses[index] = addr;
+      } else {
+        // New address — push without _id if needed
+        const { _id, ...rest } = addr;
+        user.addresses.push(rest);
+      }
+    }
+
+    await user.save();
+    res.json(user);
+  } catch (err) {
+    console.error('Update error:', err);
     res.status(400).json({ message: err.message });
   }
 });
