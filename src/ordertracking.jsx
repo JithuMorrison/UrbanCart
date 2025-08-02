@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiMapPin } from 'react-icons/fi';
+import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiMapPin, FiStar } from 'react-icons/fi';
 
 const OrderTracking = () => {
   const { orderId } = useParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [ratingModal, setRatingModal] = useState({
+    open: false,
+    product: null,
+    rating: 0,
+    review: ''
+  });
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -42,6 +48,59 @@ const OrderTracking = () => {
       active: index <= currentIndex,
       completed: index < currentIndex
     }));
+  };
+
+  const handleRateProduct = (product) => {
+    setRatingModal({
+      open: true,
+      product,
+      rating: 0,
+      review: ''
+    });
+  };
+
+  const submitRating = async () => {
+    try {
+      const userId = localStorage.getItem('userId');
+      const response = await fetch(`http://localhost:3000/products/${ratingModal.product.productId}/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          rating: ratingModal.rating,
+          review: ratingModal.review
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit review');
+      }
+
+      // Refresh order data to show the newly added review
+      const orderResponse = await fetch(`http://localhost:3000/user/${userId}/order/${orderId}`);
+      const orderData = await orderResponse.json();
+      setOrder(orderData);
+
+      setRatingModal({
+        open: false,
+        product: null,
+        rating: 0,
+        review: ''
+      });
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const hasRatedProduct = (productId) => {
+    if (!order) return false;
+    return order.items.some(item => 
+      item.productId === productId && 
+      item.review && 
+      item.review.rating > 0
+    );
   };
 
   if (loading) {
@@ -134,6 +193,23 @@ const OrderTracking = () => {
               <div className="ml-4 flex-1">
                 <h3 className="font-medium">{item.productName}</h3>
                 <p className="text-gray-600">Qty: {item.quantityOrdered}</p>
+                {order.status === 'delivered' && (
+                  <div className="mt-2">
+                    {hasRatedProduct(item.productId) ? (
+                      <div className="flex items-center text-yellow-500">
+                        <span>Your rating: {item.review.rating}</span>
+                        <FiStar className="ml-1" />
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => handleRateProduct(item)}
+                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                      >
+                        Rate this product <FiStar className="ml-1" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="font-medium">
                 ${(item.price * item.quantityOrdered).toFixed(2)}
@@ -163,6 +239,53 @@ const OrderTracking = () => {
           </div>
         </div>
       </div>
+
+      {/* Rating Modal */}
+      {ratingModal.open && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-xl font-semibold mb-4">
+              Rate {ratingModal.product.productName}
+            </h3>
+            
+            <div className="flex items-center mb-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setRatingModal({...ratingModal, rating: star})}
+                  className={`text-2xl ${star <= ratingModal.rating ? 'text-yellow-500' : 'text-gray-300'}`}
+                >
+                  <FiStar />
+                </button>
+              ))}
+            </div>
+            
+            <textarea
+              value={ratingModal.review}
+              onChange={(e) => setRatingModal({...ratingModal, review: e.target.value})}
+              placeholder="Share your experience with this product..."
+              className="w-full p-2 border rounded mb-4"
+              rows="4"
+            />
+            
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setRatingModal({...ratingModal, open: false})}
+                className="px-4 py-2 border rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRating}
+                disabled={ratingModal.rating === 0}
+                className={`px-4 py-2 rounded text-white ${ratingModal.rating === 0 ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
+                Submit Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
