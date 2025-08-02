@@ -41,6 +41,12 @@ const orderItemSchema = new mongoose.Schema({
   quantityOrdered: { type: Number, required: true },
   price: { type: Number, required: true },
   image: { type: String },
+  reviewed: { type: Boolean, default: false },
+  review: {
+    rating: { type: Number, min: 1, max: 5 },
+    comment: String,
+    reviewedAt: Date
+  }
 });
 
 const addressSchema = new mongoose.Schema({
@@ -136,7 +142,8 @@ const productSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     rating: { type: Number, min: 1, max: 5 },
     review: String,
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: Date
   }],
   averageRating: { type: Number, default: 0 },
   isFeatured: { type: Boolean, default: false },
@@ -1618,10 +1625,8 @@ app.get('/search/suggestions', async (req, res) => {
 // Product Reviews
 app.post('/products/:id/reviews', async (req, res) => {
   try {
-    const { userId, rating, review } = req.body;
-    const productId = req.params.id;
-    
-    const product = await Product.findById(productId);
+    const { userId, rating, review, orderId, productId } = req.body;
+    const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
     
     // Check if user already reviewed this product
@@ -1642,7 +1647,70 @@ app.post('/products/:id/reviews', async (req, res) => {
     product.averageRating = totalRating / product.ratings.length;
     
     await product.save();
+
+    // Update the order item's review status
+    const order = await Order.findById(orderId);
+    if (order) {
+      const item = order.items.find(i => i._id.toString() === productId);
+      if (item) {
+        item.reviewed = true;
+        item.review = {
+          rating,
+          comment: review,
+          reviewedAt: new Date()
+        };
+        await order.save();
+      }
+    }
+    
     res.status(201).json(product);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put('/products/:id/reviews', async (req, res) => {
+  try {
+    const { userId, rating, review, orderId, productId } = req.body;
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    
+    // Find existing review
+    const existingReviewIndex = product.ratings.findIndex(r => r.userId.toString() === userId);
+    if (existingReviewIndex === -1) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    
+    // Update the review
+    product.ratings[existingReviewIndex] = {
+      userId,
+      rating,
+      review,
+      createdAt: product.ratings[existingReviewIndex].createdAt,
+      updatedAt: new Date()
+    };
+    
+    // Recalculate average rating
+    const totalRating = product.ratings.reduce((sum, r) => sum + r.rating, 0);
+    product.averageRating = totalRating / product.ratings.length;
+    
+    await product.save();
+
+    // Update the order item's review
+    const order = await Order.findById(orderId);
+    if (order) {
+      const item = order.items.find(i => i._id.toString() === productId);
+      if (item) {
+        item.review = {
+          rating,
+          comment: review,
+          reviewedAt: new Date()
+        };
+        await order.save();
+      }
+    }
+    
+    res.json(product);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
