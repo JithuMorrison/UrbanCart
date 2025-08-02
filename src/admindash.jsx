@@ -89,6 +89,14 @@ const AdminDashboard = () => {
             <FiTag />
             <span>Products</span>
           </Link>
+
+          <Link
+            to="/admin/dashboard/discounts"
+            className={`flex items-center space-x-3 p-3 rounded-lg ${getActiveClass('/products')}`}
+          >
+            <FiTag />
+            <span>Discounts</span>
+          </Link>
           
           <Link
             to="/admin/dashboard/users"

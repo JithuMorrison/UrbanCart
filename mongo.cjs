@@ -77,7 +77,13 @@ const discountSchema = new mongoose.Schema({
   usedCount: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   applicableCategories: [String],
-  userGroups: [String] // new-user, frequent-buyer, etc.
+  applicableProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+  userGroups: [String], // new-user, frequent-buyer, etc.
+  autoApply: { type: Boolean, default: false }, // For automatic discounts like first-order
+  singleUse: { type: Boolean, default: false }, // For one-time use coupons
+  createdBy: { type: String, enum: ['admin', 'system'], default: 'admin' },
+  description: String,
+  minimumPurchaseAmount: Number
 });
 
 const orderSchema = new mongoose.Schema({
@@ -126,7 +132,16 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   lastLogin: Date,
   joinDate: { type: Date, default: Date.now },
-  isActive: { type: Boolean, default: true }
+  isActive: { type: Boolean, default: true },
+  coupons: [{
+    code: String,
+    discountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Discount' },
+    used: { type: Boolean, default: false },
+    obtainedAt: { type: Date, default: Date.now }
+  }],
+  firstOrderDiscountUsed: { type: Boolean, default: false },
+  referralCode: String,
+  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 });
 
 const productSchema = new mongoose.Schema({
@@ -248,7 +263,7 @@ const errorHandler = (err, req, res, next) => {
 // User Routes
 app.post('/user/register', async (req, res) => {
   try {
-    const { username, password, email, firstName, lastName } = req.body;
+    const { username, password, email, firstName, lastName, referralCode } = req.body;
     
     // For demo purposes - in production, you'd have a more secure way to create admin accounts
     const role = username === 'admin' ? 'admin' : 'user';
@@ -259,8 +274,75 @@ app.post('/user/register', async (req, res) => {
       email, 
       firstName, 
       lastName,
-      role
+      role,
+      referralCode: Math.random().toString(36).substring(2, 8).toUpperCase()
     });
+    
+    await newUser.save();
+    
+    // Create welcome coupon for new users
+    const welcomeCoupon = await Discount.findOneAndUpdate(
+      { code: 'WELCOME10', autoApply: true, userGroups: 'new-user' },
+      { 
+        $setOnInsert: {
+          type: 'percentage',
+          value: 10,
+          description: '10% off your first order',
+          validFrom: new Date(),
+          validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          maxUses: 1000,
+          isActive: true,
+          minimumPurchaseAmount: 20
+        },
+        $inc: { maxUses: 1 } // Increment max uses to account for new user
+      },
+      { new: true, upsert: true }
+    );
+    
+    // Add to user's coupons
+    newUser.coupons.push({
+      code: welcomeCoupon.code,
+      discountId: welcomeCoupon._id
+    });
+    
+    // Handle referral if provided
+    if (referralCode) {
+      const referrer = await User.findOne({ referralCode });
+      if (referrer) {
+        newUser.referredBy = referrer._id;
+        
+        // Find or create referral discount
+        const referralDiscount = await Discount.findOneAndUpdate(
+          { code: 'REFERRAL10', autoApply: true },
+          { 
+            $setOnInsert: {
+              type: 'percentage',
+              value: 10,
+              description: 'Referral bonus - 10% off',
+              validFrom: new Date(),
+              validUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+              maxUses: 1000,
+              isActive: true
+            },
+            $inc: { maxUses: 1 }
+          },
+          { new: true, upsert: true }
+        );
+        
+        // Add referral coupon to new user
+        newUser.coupons.push({
+          code: referralDiscount.code,
+          discountId: referralDiscount._id
+        });
+        
+        // Add referral bonus to referrer
+        referrer.coupons.push({
+          code: 'REFBONUS10',
+          discountId: referralDiscount._id
+        });
+        await referrer.save();
+      }
+    }
     
     await newUser.save();
     
@@ -270,7 +352,9 @@ app.post('/user/register', async (req, res) => {
         from: process.env.EMAIL_USER,
         to: email,
         subject: 'Welcome to Our E-commerce Store!',
-        html: `<h1>Welcome ${firstName}!</h1><p>Thank you for registering with us.</p>`
+        html: `<h1>Welcome ${firstName}!</h1>
+               <p>Thank you for registering with us.</p>
+               <p>Use code <strong>WELCOME10</strong> for 10% off your first order!</p>`
       });
     } catch (emailErr) {
       console.error('Email sending failed:', emailErr);
@@ -724,7 +808,7 @@ app.post('/user/:userId/cart/clear', async (req, res) => {
 // Order Routes
 app.post('/user/:userId/checkout', async (req, res) => {
   try {
-    const { shippingAddress, billingAddress, paymentMethod, discountCode } = req.body;
+    const { shippingAddress, billingAddress, paymentMethod, couponCode } = req.body;
     const user = await User.findById(req.params.userId).populate('cart.productId');
     
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -746,18 +830,42 @@ app.post('/user/:userId/checkout', async (req, res) => {
       };
     });
     
-    // Apply discount if provided
+    // Apply coupon if provided
     let discount = 0;
-    if (discountCode) {
-      const discountObj = await Discount.findOne({ code: discountCode, isActive: true });
-      if (discountObj && discountObj.validUntil > new Date() && discountObj.usedCount < discountObj.maxUses) {
-        if (discountObj.type === 'percentage') {
-          discount = subtotal * (discountObj.value / 100);
-        } else if (discountObj.type === 'fixed') {
-          discount = discountObj.value;
+    let appliedCoupon = null;
+    
+    if (couponCode) {
+      const couponResponse = await fetch(`http://localhost:3000/user/${user._id}/apply-coupon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          couponCode,
+          cartItems: user.cart.map(item => ({
+            productId: item.productId._id,
+            price: item.productId.price,
+            quantity: item.quantity
+          }))
+        })
+      });
+      
+      const couponData = await couponResponse.json();
+      
+      if (couponData.success) {
+        discount = couponData.coupon.discountAmount;
+        appliedCoupon = couponData.coupon.code;
+        
+        // Mark coupon as used if single-use
+        const coupon = await Discount.findOne({ code: couponCode });
+        if (coupon.singleUse) {
+          user.coupons = user.coupons.map(c => 
+            c.code === couponCode ? { ...c.toObject(), used: true } : c
+          );
+          await user.save();
         }
-        discountObj.usedCount += 1;
-        await discountObj.save();
+        
+        // Update coupon usage count
+        coupon.usedCount += 1;
+        await coupon.save();
       }
     }
     
@@ -773,7 +881,8 @@ app.post('/user/:userId/checkout', async (req, res) => {
       discount,
       total: subtotal - discount + (subtotal > 50 ? 0 : 5.99),
       status: 'pending',
-      statusHistory: [{ status: 'pending' }]
+      statusHistory: [{ status: 'pending' }],
+      appliedCoupon
     });
     
     await order.save();
@@ -781,21 +890,30 @@ app.post('/user/:userId/checkout', async (req, res) => {
     // Clear user's cart
     user.cart = [];
     user.orders.push(order._id);
+    
+    // Mark first order discount as used if applicable
+    if (appliedCoupon) {
+      const coupon = await Discount.findOne({ code: appliedCoupon });
+      if (coupon.userGroups?.includes('new-user')) {
+        user.firstOrderDiscountUsed = true;
+      }
+    }
+    
     await user.save();
     
     // Send order confirmation email
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: user.email,
-        subject: 'Your Order Confirmation',
-        html: `<h1>Thank you for your order, ${user.firstName}!</h1>
-               <p>Order #${order._id}</p>
-               <p>Total: $${order.total.toFixed(2)}</p>`
-      });
-    } catch (emailErr) {
-      console.error('Order confirmation email failed:', emailErr);
-    }
+    // try {
+    //   await transporter.sendMail({
+    //     from: process.env.EMAIL_USER,
+    //     to: user.email,
+    //     subject: 'Your Order Confirmation',
+    //     html: `<h1>Thank you for your order, ${user.firstName}!</h1>
+    //            <p>Order #${order._id}</p>
+    //            <p>Total: $${order.total.toFixed(2)}</p>`
+    //   });
+    // } catch (emailErr) {
+    //   console.error('Order confirmation email failed:', emailErr);
+    // }
     
     res.status(201).json(order);
   } catch (err) {
@@ -830,6 +948,105 @@ app.post('/user/:userId/order/:orderId/reorder', async (req, res) => {
     res.json(user.cart);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+app.post('/user/:userId/order/:orderId/complete', async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    const user = await User.findById(req.params.userId);
+    
+    if (!order || !user) {
+      console.log("failure");
+      return res.status(404).json({ message: 'Order or user not found' });
+    }
+
+    console.log("success")
+    
+    // Mark order as completed
+    // order.status = 'completed';
+    // order.statusHistory.push({
+    //   status: 'completed',
+    //   changedAt: new Date()
+    // });
+    
+    // await order.save();
+    
+    // Check if this was the user's first order
+    const userOrders = await Order.countDocuments({ userId: user._id });
+    if (userOrders === 1) {
+      // Mark first order discount as used if applied
+      if (order.appliedCoupon) {
+        const coupon = await Discount.findOne({ code: order.appliedCoupon });
+        if (coupon?.userGroups?.includes('new-user')) {
+          user.firstOrderDiscountUsed = true;
+        }
+      }
+      
+      // Give a thank you coupon for next purchase
+      const thankYouCoupon = await Discount.findOneAndUpdate(
+        { code: 'THANKYOU5', autoApply: true },
+        { $inc: { maxUses: 1 } },
+        { new: true }
+      );
+
+      if (!thankYouCoupon) {
+        const newCoupon = await Discount.create({
+          code: 'THANKYOU5',
+          autoApply: true,
+          type: 'percentage',
+          value: 5,
+          description: 'Thank you for your first order - 5% off next purchase',
+          validFrom: new Date(),
+          validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          maxUses: 1000,
+          isActive: true
+        });
+        // Add to user
+        user.coupons.push({ code: newCoupon.code, discountId: newCoupon._id });
+      } else {
+        // Add to user
+        user.coupons.push({ code: thankYouCoupon.code, discountId: thankYouCoupon._id });
+      }
+    }
+    
+    // Check if order qualifies for a high-value coupon
+    if (order.total > 100 && !user.receivedHighValueCoupon) {
+      let highValueCoupon = await Discount.findOneAndUpdate(
+        { code: 'BIGSPENDER15', autoApply: true },
+        { $inc: { maxUses: 1 } },
+        { new: true }
+      );
+
+      if (!highValueCoupon) {
+        highValueCoupon = await Discount.create({
+          code: 'BIGSPENDER15',
+          autoApply: true,
+          type: 'percentage',
+          value: 15,
+          description: '15% off your next order - Thanks for being a valued customer!',
+          validFrom: new Date(),
+          validUntil: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 days
+          maxUses: 1000,
+          isActive: true,
+          minimumPurchaseAmount: 50
+        });
+      }
+
+      user.coupons.push({
+        code: highValueCoupon.code,
+        discountId: highValueCoupon._id
+      });
+
+      user.receivedHighValueCoupon = true;
+    }
+    
+    await user.save();
+    
+    res.json(order);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+    console.log(err.message);
   }
 });
 
@@ -1236,6 +1453,161 @@ app.post('/user/:userId/order/:orderId/cancel', async (req, res) => {
   } catch (err) {
     console.error('Error cancelling order:', err);
     res.status(500).json({ message: 'Failed to cancel order', error: err.message });
+  }
+});
+
+// Get valid coupons for a user
+app.get('/user/:userId/coupons', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Get all valid coupons (not expired, not used, etc.)
+    const validCoupons = await Discount.find({
+      $or: [
+        { userGroups: { $in: ['all-users'] }}, // General coupons
+        { userGroups: { $in: ['new-user'] }}, // New user coupons
+        { _id: { $in: user.coupons.map(c => c.discountId) } } // User-specific coupons
+      ],
+      isActive: true,
+      validFrom: { $lte: new Date() },
+      validUntil: { $gte: new Date() },
+      $expr: { $lt: ['$usedCount', '$maxUses'] }
+    });
+
+    res.json(validCoupons);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Apply coupon to cart/order
+app.post('/user/:userId/apply-coupon', async (req, res) => {
+  try {
+    const { couponCode, cartItems } = req.body;
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Find the coupon
+    const coupon = await Discount.findOne({ 
+      code: couponCode,
+      isActive: true,
+      validFrom: { $lte: new Date() },
+      validUntil: { $gte: new Date() },
+      $expr: { $lt: ['$usedCount', '$maxUses'] }
+    });
+
+    if (!coupon) return res.status(400).json({ message: 'Invalid or expired coupon' });
+
+    // Check if user is eligible
+    if (coupon.userGroups && coupon.userGroups.length > 0) {
+      if (coupon.userGroups.includes('new-user') && user.firstOrderDiscountUsed) {
+        return res.status(400).json({ message: 'This coupon is only for first-time users' });
+      }
+      
+      if (!coupon.userGroups.includes('all-users') && 
+          !user.coupons.some(c => c.discountId.equals(coupon._id))) {
+        return res.status(400).json({ message: 'You are not eligible for this coupon' });
+      }
+    }
+
+    // Check if coupon is product-specific
+    if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
+      const applicableItems = cartItems.filter(item => 
+        coupon.applicableProducts.some(pId => pId.equals(item.productId))
+      );
+      
+      if (applicableItems.length === 0) {
+        return res.status(400).json({ 
+          message: 'This coupon is only valid for specific products' 
+        });
+      }
+    }
+
+    // Check minimum order amount
+    const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    if (coupon.minOrder && subtotal < coupon.minOrder) {
+      return res.status(400).json({ 
+        message: `Minimum order amount of $${coupon.minOrder} required for this coupon` 
+      });
+    }
+
+    // Calculate discount amount
+    let discountAmount = 0;
+    if (coupon.type === 'percentage') {
+      discountAmount = subtotal * (coupon.value / 100);
+    } else if (coupon.type === 'fixed') {
+      discountAmount = coupon.value;
+    } else if (coupon.type === 'freeShipping') {
+      discountAmount = 5.99; // Example shipping fee
+    }
+
+    res.json({
+      success: true,
+      coupon: {
+        code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+        description: coupon.description,
+        discountAmount
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Apply referral coupon
+app.post('/user/:userId/apply-referral', async (req, res) => {
+  try {
+    const { referralCode } = req.body;
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Find referrer
+    const referrer = await User.findOne({ referralCode });
+    if (!referrer) return res.status(400).json({ message: 'Invalid referral code' });
+
+    // Check if user already used a referral
+    if (user.referredBy) {
+      return res.status(400).json({ message: 'You already used a referral code' });
+    }
+
+    // Find referral discount (could be a system-generated coupon)
+    const referralDiscount = await Discount.findOne({
+      code: 'REFERRAL2023', // Example
+      isActive: true
+    });
+
+    if (!referralDiscount) {
+      return res.status(400).json({ message: 'Referral program not available' });
+    }
+
+    // Update user with referral info
+    user.referredBy = referrer._id;
+    user.coupons.push({
+      code: referralDiscount.code,
+      discountId: referralDiscount._id
+    });
+    await user.save();
+
+    // Also give referrer a bonus
+    referrer.coupons.push({
+      code: 'REFERRAL_BONUS',
+      discountId: referralDiscount._id
+    });
+    await referrer.save();
+
+    res.json({
+      success: true,
+      message: 'Referral applied successfully!',
+      coupon: {
+        code: referralDiscount.code,
+        description: referralDiscount.description
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 

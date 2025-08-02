@@ -8,7 +8,9 @@ import {
   FiUser, 
   FiMapPin,
   FiPackage,
-  FiDollarSign
+  FiDollarSign,
+  FiX,
+  FiTag
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 
@@ -33,6 +35,10 @@ const Cart = () => {
   const [userAddresses, setUserAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [useSavedAddress, setUseSavedAddress] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponError, setCouponError] = useState('');
+  const [availableCoupons, setAvailableCoupons] = useState([]);
   const navigate = useNavigate();
 
   // Fetch cart data
@@ -110,8 +116,19 @@ const Cart = () => {
       }
     };
 
+    const fetchCoupons = async () => {
+      try {
+        const response = await fetch(`http://localhost:3000/user/${user}/coupons`);
+        const data = await response.json();
+        setAvailableCoupons(data);
+      } catch (err) {
+        console.error('Error fetching coupons:', err);
+      }
+    };
+
     if (checkoutStep === 'details' || checkoutStep === 'cart') {
       fetchUserAddresses();
+      if (user) fetchCoupons();
     }
   }, [user, checkoutStep]);
 
@@ -135,12 +152,20 @@ const Cart = () => {
     return (price * (1 - discount / 100)).toFixed(2);
   };
 
-  const calculateTotal = () => {
-    return cart.reduce((total, item) => total + (parseFloat(item.priceAfterDiscount) * item.quantitybuy), 0).toFixed(2);
+  const calculateSubtotal = () => {
+    return cart.reduce((total, item) => total + (parseFloat(item.priceAfterDiscount) * item.quantitybuy), 0);
   };
 
-  const calculateSubtotal = (item) => {
-    return (parseFloat(item.priceAfterDiscount) * item.quantitybuy);
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    if (appliedCoupon) {
+      return (subtotal - appliedCoupon.discountAmount).toFixed(2);
+    }
+    return subtotal.toFixed(2);
+  };
+
+  const calculateSubtotalForItem = (item) => {
+    return (parseFloat(item.priceAfterDiscount) * item.quantitybuy).toFixed(2);
   };
 
   const calculateTax = () => {
@@ -149,6 +174,43 @@ const Cart = () => {
 
   const calculateGrandTotal = () => {
     return (parseFloat(calculateTotal()) + parseFloat(calculateTax())).toFixed(2);
+  };
+
+  // Coupon functions
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    
+    setCouponError('');
+    
+    try {
+      const response = await fetch(`http://localhost:3000/user/${user}/apply-coupon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          couponCode,
+          cartItems: cart.map(item => ({
+            productId: item.id,
+            price: item.price,
+            quantity: item.quantitybuy
+          }))
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setAppliedCoupon(data.coupon);
+      } else {
+        setCouponError(data.message || 'Failed to apply coupon');
+      }
+    } catch (err) {
+      setCouponError('Error applying coupon');
+    }
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode('');
   };
 
   // Cart operations
@@ -258,7 +320,9 @@ const Cart = () => {
           email: formData.email
         },
         paymentMethod: formData.paymentMethod,
-        subtotal: parseFloat(calculateTotal()),
+        couponCode: appliedCoupon?.code,
+        discountAmount: appliedCoupon?.discountAmount || 0,
+        subtotal: parseFloat(calculateSubtotal()),
         tax: parseFloat(calculateTax()),
         total: parseFloat(calculateGrandTotal()),
         status: 'processing'
@@ -282,7 +346,11 @@ const Cart = () => {
       localStorage.removeItem('cart');
       
       // Clear cart in backend if user is logged in
+      console.log(data);
       if (user) {
+        await fetch(`http://localhost:3000/user/${user}/order/${data._id}/complete`,{
+          method: 'POST'
+        });
         await fetch(`http://localhost:3000/user/${user}/cart/clear`, {
           method: 'POST'
         });
@@ -373,7 +441,7 @@ const Cart = () => {
         
         <div className="mt-4">
           <span className="text-gray-700 mr-4">Subtotal:</span>
-          <span className="font-bold">${calculateSubtotal(item).toFixed(2)}</span>
+          <span className="font-bold">${calculateSubtotalForItem(item)}</span>
         </div>
       </div>
     </div>
@@ -419,11 +487,80 @@ const Cart = () => {
               <div className="bg-white rounded-xl shadow-sm p-6 sticky top-4">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Order Summary</h2>
                 
+                {/* Coupon Section */}
+                <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                  {appliedCoupon ? (
+                    <div className="bg-green-50 p-3 rounded-md flex justify-between items-center">
+                      <div className="flex items-center">
+                        <FiCheckCircle className="text-green-500 mr-2" />
+                        <span className="font-medium">{appliedCoupon.code} applied</span>
+                        <span className="ml-2 text-sm text-green-700">
+                          -${appliedCoupon.discountAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={removeCoupon}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <FiX />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex">
+                      <input
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        placeholder="Coupon code"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                      />
+                      <button
+                        onClick={applyCoupon}
+                        disabled={!couponCode.trim()}
+                        className={`px-4 py-2 rounded-r-md ${
+                          !couponCode.trim() ? 'bg-gray-300' : 'bg-indigo-600 hover:bg-indigo-700'
+                        } text-white`}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  )}
+                  {couponError && <p className="text-red-500 text-sm mt-1">{couponError}</p>}
+                </div>
+
+                {/* Available Coupons */}
+                {availableCoupons.length > 0 && !appliedCoupon && (
+                  <div className="mb-4 pt-2 border-t border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Available Coupons</h4>
+                    <ul className="space-y-2">
+                      {availableCoupons.slice(0, 3).map(coupon => (
+                        <li key={coupon._id} className="flex items-center">
+                          <FiTag className="text-indigo-500 mr-2" />
+                          <div>
+                            <p className="text-sm font-medium">{coupon.code} - {coupon.description}</p>
+                            <p className="text-xs text-gray-500">
+                              Valid until {new Date(coupon.validUntil).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal</span>
-                    <span>${calculateTotal()}</span>
+                    <span>${calculateSubtotal().toFixed(2)}</span>
                   </div>
+                  
+                  {appliedCoupon && (
+                    <div className="flex justify-between text-green-600">
+                      <span className="text-gray-600">Discount</span>
+                      <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  
                   <div className="flex justify-between">
                     <span className="text-gray-600">Shipping</span>
                     <span className="text-green-600">Free</span>
@@ -674,13 +811,19 @@ const Cart = () => {
             {cart.map(item => (
               <div key={item.id} className="flex justify-between py-2 border-b border-gray-200">
                 <span className="text-gray-700">{item.name} × {item.quantitybuy}</span>
-                <span className="font-medium">${calculateSubtotal(item).toFixed(2)}</span>
+                <span className="font-medium">${calculateSubtotalForItem(item)}</span>
               </div>
             ))}
             <div className="flex justify-between text-gray-600 pt-2">
               <span>Subtotal</span>
-              <span>${calculateTotal()}</span>
+              <span>${calculateSubtotal().toFixed(2)}</span>
             </div>
+            {appliedCoupon && (
+              <div className="flex justify-between text-green-600">
+                <span>Discount</span>
+                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-gray-600">
               <span>Tax</span>
               <span>${calculateTax()}</span>
@@ -812,7 +955,21 @@ const Cart = () => {
             <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
               <FiDollarSign className="mr-2" /> Order Total
             </h3>
-            <div className="flex justify-between font-bold text-lg">
+            <div className="flex justify-between text-gray-600">
+              <span>Subtotal</span>
+              <span>${calculateSubtotal().toFixed(2)}</span>
+            </div>
+            {appliedCoupon && (
+              <div className="flex justify-between text-green-600">
+                <span>Discount</span>
+                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-gray-600">
+              <span>Tax</span>
+              <span>${calculateTax()}</span>
+            </div>
+            <div className="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
               <span>Total</span>
               <span>${calculateGrandTotal()}</span>
             </div>

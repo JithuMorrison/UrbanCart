@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiPlus, FiTrash2, FiEdit, FiClock, FiCheckCircle, FiDollarSign } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit, FiClock, FiCheckCircle, FiDollarSign, FiTag } from 'react-icons/fi';
 
 const DiscountManager = () => {
   const [discounts, setDiscounts] = useState([]);
@@ -15,8 +15,13 @@ const DiscountManager = () => {
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     maxUses: 100,
     applicableCategories: [],
+    applicableProducts: '', // Changed to string for input handling
     userGroups: [],
-    isActive: true
+    isActive: true,
+    autoApply: false,
+    singleUse: false,
+    minimumPurchaseAmount: 0,
+    description: ''
   });
 
   useEffect(() => {
@@ -26,7 +31,7 @@ const DiscountManager = () => {
   const fetchDiscounts = async () => {
     try {
       const response = await fetch('http://localhost:3000/admin/discounts', {
-        headers: { 'x-admin-auth': 'your-admin-secret' }
+        headers: { 'x-user-id': localStorage.getItem('userId') }
       });
       const data = await response.json();
       setDiscounts(data);
@@ -53,13 +58,28 @@ const DiscountManager = () => {
         ? `http://localhost:3000/admin/discounts/${currentDiscount._id}`
         : 'http://localhost:3000/admin/discounts';
       
+      // Prepare the payload with proper data types
+      const payload = {
+        ...formData,
+        validFrom: new Date(formData.validFrom),
+        validUntil: new Date(formData.validUntil),
+        // Convert comma-separated string to array of product IDs
+        applicableProducts: formData.applicableProducts
+          ? formData.applicableProducts.split(',').map(id => id.trim()).filter(id => id)
+          : [],
+        // Ensure applicableCategories is an array
+        applicableCategories: Array.isArray(formData.applicableCategories)
+          ? formData.applicableCategories
+          : []
+      };
+
       const response = await fetch(url, {
         method,
         headers: { 
           'Content-Type': 'application/json',
-          'x-admin-auth': 'your-admin-secret'
+          'x-user-id': localStorage.getItem('userId')
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       
       const data = await response.json();
@@ -80,8 +100,13 @@ const DiscountManager = () => {
       validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       maxUses: 100,
       applicableCategories: [],
+      applicableProducts: '',
       userGroups: [],
-      isActive: true
+      isActive: true,
+      autoApply: false,
+      singleUse: false,
+      minimumPurchaseAmount: 0,
+      description: ''
     });
     setCurrentDiscount(null);
     setShowForm(false);
@@ -98,8 +123,16 @@ const DiscountManager = () => {
       validUntil: new Date(discount.validUntil).toISOString().split('T')[0],
       maxUses: discount.maxUses,
       applicableCategories: discount.applicableCategories || [],
+      // Convert array to comma-separated string for the input field
+      applicableProducts: Array.isArray(discount.applicableProducts) 
+        ? discount.applicableProducts.join(', ')
+        : '',
       userGroups: discount.userGroups || [],
-      isActive: discount.isActive
+      isActive: discount.isActive,
+      autoApply: discount.autoApply || false,
+      singleUse: discount.singleUse || false,
+      minimumPurchaseAmount: discount.minimumPurchaseAmount || 0,
+      description: discount.description || ''
     });
     setShowForm(true);
   };
@@ -109,7 +142,7 @@ const DiscountManager = () => {
       try {
         await fetch(`http://localhost:3000/admin/discounts/${id}`, {
           method: 'DELETE',
-          headers: { 'x-admin-auth': 'your-admin-secret' }
+          headers: { 'x-user-id': localStorage.getItem('userId') }
         });
         fetchDiscounts();
       } catch (err) {
@@ -163,7 +196,7 @@ const DiscountManager = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Discount Code</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Discount Code*</label>
                 <input
                   type="text"
                   name="code"
@@ -175,12 +208,13 @@ const DiscountManager = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Discount Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Discount Type*</label>
                 <select
                   name="type"
                   value={formData.type}
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 >
                   <option value="percentage">Percentage</option>
                   <option value="fixed">Fixed Amount</option>
@@ -190,7 +224,7 @@ const DiscountManager = () => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {formData.type === 'percentage' ? 'Percentage Value' : 'Fixed Amount'}
+                  {formData.type === 'percentage' ? 'Percentage Value*' : 'Fixed Amount*'}
                 </label>
                 <input
                   type="number"
@@ -218,7 +252,7 @@ const DiscountManager = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Valid From</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Valid From*</label>
                 <input
                   type="date"
                   name="validFrom"
@@ -230,7 +264,7 @@ const DiscountManager = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Valid Until</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Valid Until*</label>
                 <input
                   type="date"
                   name="validUntil"
@@ -242,7 +276,7 @@ const DiscountManager = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Maximum Uses</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Maximum Uses*</label>
                 <input
                   type="number"
                   name="maxUses"
@@ -270,6 +304,18 @@ const DiscountManager = () => {
               </div>
               
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Applicable Products</label>
+                <input
+                  type="text"
+                  name="applicableProducts"
+                  value={formData.applicableProducts}
+                  onChange={handleInputChange}
+                  placeholder="Product IDs, comma separated"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">User Groups</label>
                 <select
                   name="userGroups"
@@ -284,7 +330,20 @@ const DiscountManager = () => {
                   <option value="new-user">New Users</option>
                   <option value="frequent-buyer">Frequent Buyers</option>
                   <option value="vip">VIP Customers</option>
+                  <option value="all-users">All Users</option>
                 </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  rows="3"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Description shown to users"
+                />
               </div>
               
               <div className="flex items-center">
@@ -296,6 +355,28 @@ const DiscountManager = () => {
                   className="mr-2"
                 />
                 <label className="text-sm font-medium text-gray-700">Active</label>
+              </div>
+              
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  name="autoApply"
+                  checked={formData.autoApply}
+                  onChange={handleInputChange}
+                  className="mr-2"
+                />
+                <label className="text-sm font-medium text-gray-700">Auto-apply for eligible users</label>
+              </div>
+              
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  name="singleUse"
+                  checked={formData.singleUse}
+                  onChange={handleInputChange}
+                  className="mr-2"
+                />
+                <label className="text-sm font-medium text-gray-700">Single use per customer</label>
               </div>
             </div>
             
@@ -322,7 +403,7 @@ const DiscountManager = () => {
         <div className="text-center py-8">Loading discounts...</div>
       ) : discounts.length === 0 ? (
         <div className="text-center py-8">
-          <FiDollarSign className="mx-auto text-4xl text-gray-300 mb-3" />
+          <FiTag className="mx-auto text-4xl text-gray-300 mb-3" />
           <p className="text-gray-500">No discounts found</p>
         </div>
       ) : (
@@ -345,6 +426,9 @@ const DiscountManager = () => {
                   <tr key={discount._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium">{discount.code}</div>
+                      {discount.description && (
+                        <div className="text-sm text-gray-500">{discount.description}</div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {discount.type === 'percentage' ? 'Percentage' : 
