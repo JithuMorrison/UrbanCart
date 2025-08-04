@@ -978,6 +978,20 @@ app.post('/user/:userId/order/:orderId/complete', async (req, res) => {
       // Mark first order discount as used if applied
       if (order.appliedCoupon) {
         const coupon = await Discount.findOne({ code: order.appliedCoupon });
+      
+        if (coupon) {
+          // Increment coupon usage count
+          coupon.usedCount += 1;
+          await coupon.save();
+          
+          // Mark as used in user's coupons if single-use
+          if (coupon.singleUse) {
+            const userCoupon = user.coupons.find(c => c.code === coupon.code);
+            if (userCoupon) {
+              userCoupon.used = true;
+            }
+          }
+        }
         if (coupon?.userGroups?.includes('new-user')) {
           user.firstOrderDiscountUsed = true;
         }
@@ -1300,13 +1314,11 @@ app.get('/user/:userId/order/:orderId', async (req, res) => {
 });
 
 // Add this route before the 404 handler in your server.js
-
-// Create new order (alternative to checkout)
 app.post('/user/:userId/order', async (req, res) => {
   try {
     console.log('Incoming order data:', req.body);
     const userId = req.params.userId;
-    const { items, shippingAddress, paymentMethod } = req.body;
+    const { items, shippingAddress, paymentMethod, couponCode } = req.body;
 
     // Validate required fields
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1348,10 +1360,34 @@ app.post('/user/:userId/order', async (req, res) => {
       });
     }
 
+    // Validate and apply coupon if provided
+    let discountAmount = 0;
+    let appliedCoupon = null;
+    
+    if (couponCode) {
+      const couponResponse = await fetch(`http://localhost:3000/user/${userId}/apply-coupon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          couponCode,
+          cartItems: items
+        })
+      });
+      
+      const couponData = await couponResponse.json();
+      
+      if (!couponData.success) {
+        return res.status(400).json({ message: couponData.message });
+      }
+      
+      discountAmount = couponData.coupon.discountAmount;
+      appliedCoupon = couponData.coupon.code;
+    }
+
     // Calculate tax and total
     const tax = subtotal * 0.1;
     const shippingFee = subtotal > 50 ? 0 : 5.99;
-    const total = subtotal + tax + shippingFee;
+    const total = subtotal - discountAmount + tax + shippingFee;
 
     // Create the order
     const order = new Order({
@@ -1362,7 +1398,9 @@ app.post('/user/:userId/order', async (req, res) => {
       subtotal,
       shippingFee,
       tax,
+      discount: discountAmount,
       total,
+      appliedCoupon,
       status: 'processing'
     });
 
@@ -1378,6 +1416,18 @@ app.post('/user/:userId/order', async (req, res) => {
     // Clear user's cart
     user.cart = [];
     user.orders.push(order._id);
+    
+    // Mark coupon as used if single-use
+    if (appliedCoupon) {
+      const coupon = await Discount.findOne({ code: appliedCoupon });
+      if (coupon?.singleUse) {
+        const userCoupon = user.coupons.find(c => c.code === appliedCoupon);
+        if (userCoupon) {
+          userCoupon.used = true;
+        }
+      }
+    }
+    
     await user.save();
 
     res.status(201).json(order);
@@ -1459,29 +1509,74 @@ app.post('/user/:userId/order/:orderId/cancel', async (req, res) => {
 // Get valid coupons for a user
 app.get('/user/:userId/coupons', async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId);
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    // Validate user ID
+    if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
 
-    // Get all valid coupons (not expired, not used, etc.)
+    const user = await User.findById(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const now = new Date();
+    
+    // First find all potentially valid coupons
     const validCoupons = await Discount.find({
-      $or: [
-        { userGroups: { $in: ['all-users'] }}, // General coupons
-        { userGroups: { $in: ['new-user'] }}, // New user coupons
-        { _id: { $in: user.coupons.map(c => c.discountId) } } // User-specific coupons
-      ],
-      isActive: true,
-      validFrom: { $lte: new Date() },
-      validUntil: { $gte: new Date() },
-      $expr: { $lt: ['$usedCount', '$maxUses'] }
+      $and: [
+        {
+          $or: [
+            { _id: { $in: user.coupons.map(c => c.discountId) } }, // User's coupons
+            { userGroups: 'all-users' }, // General coupons
+            { userGroups: 'new-user' } // New user coupons
+          ]
+        },
+        { isActive: true },
+        { validFrom: { $lte: now } },
+        { validUntil: { $gte: now } }
+      ]
+    }).lean();
+
+    // Then filter in JavaScript for coupons that haven't exceeded max uses
+    const usableCoupons = validCoupons.filter(coupon => {
+      // Check max uses
+      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+        return false;
+      }
+
+      // Check if single-use and already used
+      if (coupon.singleUse) {
+        const userCoupon = user.coupons.find(c => c.discountId.equals(coupon._id));
+        if (userCoupon?.used) {
+          return false;
+        }
+      }
+
+      // Check new user status if coupon is for new users
+      if (coupon.userGroups?.includes('new-user') && user.firstOrderDiscountUsed) {
+        return false;
+      }
+
+      return true;
     });
 
-    res.json(validCoupons);
+    // Add remaining uses count
+    const couponsWithRemaining = usableCoupons.map(coupon => ({
+      ...coupon,
+      remainingUses: coupon.maxUses ? coupon.maxUses - coupon.usedCount : Infinity
+    }));
+
+    res.json(couponsWithRemaining);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('Error in /user/:userId/coupons:', err);
+    res.status(500).json({ 
+      message: 'Server error while fetching coupons',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
-// Apply coupon to cart/order
+// Apply coupon with proper validation
 app.post('/user/:userId/apply-coupon', async (req, res) => {
   try {
     const { couponCode, cartItems } = req.body;
@@ -1493,42 +1588,48 @@ app.post('/user/:userId/apply-coupon', async (req, res) => {
       code: couponCode,
       isActive: true,
       validFrom: { $lte: new Date() },
-      validUntil: { $gte: new Date() },
-      $expr: { $lt: ['$usedCount', '$maxUses'] }
+      validUntil: { $gte: new Date() }
     });
 
-    if (!coupon) return res.status(400).json({ message: 'Invalid or expired coupon' });
-
-    // Check if user is eligible
-    if (coupon.userGroups && coupon.userGroups.length > 0) {
-      if (coupon.userGroups.includes('new-user') && user.firstOrderDiscountUsed) {
-        return res.status(400).json({ message: 'This coupon is only for first-time users' });
-      }
-      
-      if (!coupon.userGroups.includes('all-users') && 
-          !user.coupons.some(c => c.discountId.equals(coupon._id))) {
-        return res.status(400).json({ message: 'You are not eligible for this coupon' });
-      }
+    if (!coupon) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired coupon' 
+      });
     }
 
-    // Check if coupon is product-specific
-    if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
-      const applicableItems = cartItems.filter(item => 
-        coupon.applicableProducts.some(pId => pId.equals(item.productId))
-      );
-      
-      if (applicableItems.length === 0) {
+    // Check if user has access to this coupon
+    const userHasCoupon = user.coupons.some(c => c.discountId.equals(coupon._id));
+    const isGeneralCoupon = coupon.userGroups?.includes('all-users');
+    const isNewUserCoupon = coupon.userGroups?.includes('new-user') && !user.firstOrderDiscountUsed;
+
+    if (!userHasCoupon && !isGeneralCoupon && !isNewUserCoupon) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'You do not have access to this coupon' 
+      });
+    }
+
+    // Check if user has already used this single-use coupon
+    if (coupon.singleUse && userHasCoupon) {
+      const userCoupon = user.coupons.find(c => c.discountId.equals(coupon._id));
+      if (userCoupon?.used) {
         return res.status(400).json({ 
-          message: 'This coupon is only valid for specific products' 
+          success: false,
+          message: 'This coupon has already been used' 
         });
       }
     }
 
-    // Check minimum order amount
+    // Calculate subtotal
     const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    // Check minimum order amount
     if (coupon.minOrder && subtotal < coupon.minOrder) {
       return res.status(400).json({ 
-        message: `Minimum order amount of $${coupon.minOrder} required for this coupon` 
+        success: false,
+        message: `Minimum order amount of $${coupon.minOrder} required for this coupon`,
+        minOrder: coupon.minOrder
       });
     }
 
@@ -1536,6 +1637,10 @@ app.post('/user/:userId/apply-coupon', async (req, res) => {
     let discountAmount = 0;
     if (coupon.type === 'percentage') {
       discountAmount = subtotal * (coupon.value / 100);
+      // Apply maximum discount if specified
+      if (coupon.maxDiscount) {
+        discountAmount = Math.min(discountAmount, coupon.maxDiscount);
+      }
     } else if (coupon.type === 'fixed') {
       discountAmount = coupon.value;
     } else if (coupon.type === 'freeShipping') {
@@ -1549,11 +1654,17 @@ app.post('/user/:userId/apply-coupon', async (req, res) => {
         type: coupon.type,
         value: coupon.value,
         description: coupon.description,
-        discountAmount
+        discountAmount: parseFloat(discountAmount.toFixed(2)),
+        minOrder: coupon.minOrder,
+        singleUse: coupon.singleUse,
+        maxDiscount: coupon.maxDiscount
       }
     });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(400).json({ 
+      success: false,
+      message: err.message 
+    });
   }
 });
 
@@ -2216,6 +2327,289 @@ app.get('/contacts/:id', async (req, res) => {
   } catch (err) {
     console.error('Error fetching contacts:', err);
     res.status(500).json({ message: 'Failed to fetch contacts' });
+  }
+});
+
+// Coupon routes
+app.get('/coupons/active', async (req, res) => {
+  try {
+    const now = new Date();
+    const coupons = await Discount.find({
+      isActive: true,
+      validFrom: { $lte: now },
+      validUntil: { $gte: now },
+      $or: [
+        { maxUses: { $exists: false } },
+        { maxUses: { $gt: 0 } }
+      ]
+    }).lean();
+
+    const couponsWithRemaining = coupons.map(coupon => ({
+      ...coupon,
+      remainingUses: coupon.maxUses ? coupon.maxUses - coupon.usedCount : Infinity
+    }));
+
+    res.json(couponsWithRemaining);
+  } catch (err) {
+    console.error('Error in /coupons/active:', err);
+    res.status(500).json({ 
+      message: 'Server error while fetching active coupons',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+app.post('/coupons/apply', async (req, res) => {
+  try {
+    const { couponCode, userId, cartItems, subtotal } = req.body;
+    
+    // Find the coupon
+    const coupon = await Discount.findOne({ 
+      code: couponCode,
+      isActive: true,
+      validFrom: { $lte: new Date() },
+      validUntil: { $gte: new Date() }
+    });
+
+    if (!coupon) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired coupon' 
+      });
+    }
+
+    // Check remaining uses
+    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'This coupon has been fully redeemed' 
+      });
+    }
+
+    // Check minimum order amount
+    if (coupon.minOrder && subtotal < coupon.minOrder) {
+      return res.status(400).json({ 
+        success: false,
+        message: `Minimum order amount of $${coupon.minOrder} required for this coupon`,
+        minOrder: coupon.minOrder
+      });
+    }
+
+    // Check product/category restrictions
+    if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
+      const applicableItems = cartItems.filter(item => 
+        coupon.applicableProducts.includes(item.productId)
+      );
+      
+      if (applicableItems.length === 0) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'This coupon is not valid for any items in your cart'
+        });
+      }
+    }
+
+    // Calculate discount amount
+    let discountAmount = 0;
+    if (coupon.type === 'percentage') {
+      discountAmount = subtotal * (coupon.value / 100);
+      if (coupon.maxDiscount) {
+        discountAmount = Math.min(discountAmount, coupon.maxDiscount);
+      }
+    } else if (coupon.type === 'fixed') {
+      discountAmount = coupon.value;
+    } else if (coupon.type === 'freeShipping') {
+      discountAmount = 5.99; // Example shipping fee
+    }
+
+    // For logged-in users, check if they have access to this coupon
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user) {
+        const userHasCoupon = user.coupons.some(c => c.code === coupon.code);
+        const isGeneralCoupon = coupon.userGroups?.includes('all-users');
+        
+        if (!userHasCoupon && !isGeneralCoupon) {
+          return res.status(403).json({ 
+            success: false,
+            message: 'You do not have access to this coupon' 
+          });
+        }
+
+        // Check if user has already used this single-use coupon
+        if (coupon.singleUse && userHasCoupon) {
+          const userCoupon = user.coupons.find(c => c.code === coupon.code);
+          if (userCoupon?.used) {
+            return res.status(400).json({ 
+              success: false,
+              message: 'This coupon has already been used' 
+            });
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      coupon: {
+        code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+        description: coupon.description,
+        discountAmount: parseFloat(discountAmount.toFixed(2)),
+        minOrder: coupon.minOrder,
+        singleUse: coupon.singleUse,
+        maxDiscount: coupon.maxDiscount
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ 
+      success: false,
+      message: err.message 
+    });
+  }
+});
+
+// Check coupon applicability
+app.post('/coupons/check-applicability', async (req, res) => {
+  try {
+    const { couponCode, userId, cartItems, subtotal } = req.body;
+    
+    // Find the coupon
+    const coupon = await Discount.findOne({ code: couponCode });
+    if (!coupon) {
+      return res.json({ 
+        isApplicable: false,
+        message: 'Coupon not found'
+      });
+    }
+
+    // Check basic validity
+    const now = new Date();
+    if (!coupon.isActive || now < coupon.validFrom || now > coupon.validUntil) {
+      return res.json({ 
+        isApplicable: false,
+        message: 'Coupon is not currently valid'
+      });
+    }
+
+    // Check remaining uses
+    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+      return res.json({ 
+        isApplicable: false,
+        message: 'This coupon has been fully redeemed'
+      });
+    }
+
+    // Check minimum order amount
+    if (coupon.minOrder && subtotal < coupon.minOrder) {
+      return res.json({ 
+        isApplicable: false,
+        message: `Minimum order of $${coupon.minOrder} required`
+      });
+    }
+
+    // Check product restrictions
+    if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
+      const hasApplicableProduct = cartItems.some(item => 
+        coupon.applicableProducts.includes(item.productId)
+      );
+      
+      if (!hasApplicableProduct) {
+        return res.json({ 
+          isApplicable: false,
+          message: 'No qualifying products in cart'
+        });
+      }
+    }
+
+    // Check category restrictions
+    if (coupon.applicableCategories && coupon.applicableCategories.length > 0) {
+      const productIds = cartItems.map(item => item.productId);
+      const products = await Product.find({ _id: { $in: productIds } });
+      
+      const hasApplicableCategory = products.some(product => 
+        coupon.applicableCategories.includes(product.category)
+      );
+      
+      if (!hasApplicableCategory) {
+        return res.json({ 
+          isApplicable: false,
+          message: 'No qualifying categories in cart'
+        });
+      }
+    }
+
+    // For logged-in users, check if they have access
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user) {
+        const userHasCoupon = user.coupons.some(c => c.code === coupon.code);
+        const isGeneralCoupon = coupon.userGroups?.includes('all-users');
+        
+        if (!userHasCoupon && !isGeneralCoupon) {
+          return res.json({ 
+            isApplicable: false,
+            message: 'You do not have access to this coupon'
+          });
+        }
+
+        // Check if already used single-use coupon
+        if (coupon.singleUse && userHasCoupon) {
+          const userCoupon = user.coupons.find(c => c.code === coupon.code);
+          if (userCoupon?.used) {
+            return res.json({ 
+              isApplicable: false,
+              message: 'You have already used this coupon'
+            });
+          }
+        }
+      }
+    }
+
+    // If all checks pass
+    res.json({ 
+      isApplicable: true,
+      coupon: {
+        code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+        description: coupon.description,
+        minOrder: coupon.minOrder,
+        singleUse: coupon.singleUse,
+        maxDiscount: coupon.maxDiscount
+      }
+    });
+  } catch (err) {
+    console.error('Error checking coupon applicability:', err);
+    res.status(500).json({ 
+      isApplicable: false,
+      message: 'Error checking coupon'
+    });
+  }
+});
+
+// For logged-in users to remove a coupon
+app.post('/user/:userId/coupons/:couponCode/remove', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Find the coupon in user's list
+    const userCoupon = user.coupons.find(c => c.code === req.params.couponCode);
+    if (!userCoupon) {
+      return res.status(404).json({ message: 'Coupon not found in user account' });
+    }
+
+    // For single-use coupons, mark as unused
+    if (userCoupon.used) {
+      userCoupon.used = false;
+      await user.save();
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 

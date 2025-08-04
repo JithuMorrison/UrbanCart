@@ -19,7 +19,7 @@ const Cart = () => {
   const [user] = useState(() => localStorage.getItem("userId"));
   const [username] = useState(() => localStorage.getItem("username"));
   const [isLoading, setIsLoading] = useState(true);
-  const [checkoutStep, setCheckoutStep] = useState('cart'); // 'cart', 'details', 'payment', 'complete'
+  const [checkoutStep, setCheckoutStep] = useState('cart');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -36,9 +36,10 @@ const Cart = () => {
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [useSavedAddress, setUseSavedAddress] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState(null);
-  const [couponCode, setCouponCode] = useState('');
-  const [couponError, setCouponError] = useState('');
   const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponMessage, setCouponMessage] = useState({ text: '', type: '' });
+  const [applicableCoupons, setApplicableCoupons] = useState([]);
   const navigate = useNavigate();
 
   // Fetch cart data
@@ -106,7 +107,6 @@ const Cart = () => {
         const addresses = await response.json();
         setUserAddresses(addresses);
         
-        // Set default address if available
         const defaultAddress = addresses.find(addr => addr.isDefault);
         if (defaultAddress) {
           setSelectedAddressId(defaultAddress._id);
@@ -116,38 +116,229 @@ const Cart = () => {
       }
     };
 
-    const fetchCoupons = async () => {
-      try {
-        const response = await fetch(`http://localhost:3000/user/${user}/coupons`);
-        const data = await response.json();
-        setAvailableCoupons(data);
-      } catch (err) {
-        console.error('Error fetching coupons:', err);
-      }
-    };
-
-    if (checkoutStep === 'details' || checkoutStep === 'cart') {
+    if (checkoutStep === 'address' || checkoutStep === 'cart') {
       fetchUserAddresses();
-      if (user) fetchCoupons();
     }
   }, [user, checkoutStep]);
 
-  const handleUseSavedAddress = (addressId) => {
-    const selectedAddress = userAddresses.find(addr => addr._id === addressId);
-    if (selectedAddress) {
-      setFormData(prev => ({
-        ...prev,
-        address: selectedAddress.street,
-        city: selectedAddress.city,
-        state: selectedAddress.state,
-        zipCode: selectedAddress.zipCode,
-        country: selectedAddress.country
-      }));
-      setCheckoutStep('payment');
+  // Fetch available coupons when entering the coupon step
+  useEffect(() => {
+    if (checkoutStep === 'coupons') {
+      fetchAvailableCoupons();
+    }
+  }, [checkoutStep]);
+
+  useEffect(() => {
+    const checkCouponApplicability = async () => {
+      if (availableCoupons.length === 0) return;
+      
+      const applicable = [];
+      const subtotal = calculateSubtotal();
+
+      for (const coupon of availableCoupons) {
+        try {
+          const response = await fetch('http://localhost:3000/coupons/check-applicability', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              couponCode: coupon.code,
+              userId: user || null,
+              cartItems: cart.map(item => ({
+                productId: item.id,
+                price: parseFloat(item.priceAfterDiscount),
+                quantity: item.quantitybuy
+              })),
+              subtotal
+            })
+          });
+
+          const data = await response.json();
+          if (data.isApplicable) {
+            applicable.push(coupon._id);
+          }
+        } catch (error) {
+          console.error('Error checking coupon applicability:', error);
+        }
+      }
+
+      setApplicableCoupons(applicable);
+    };
+
+    checkCouponApplicability();
+  }, [availableCoupons, cart, user]);
+
+  // Fetch available coupons when entering the coupon step
+  useEffect(() => {
+    if (checkoutStep === 'coupons') {
+      fetchAvailableCoupons();
+    }
+  }, [checkoutStep]);
+
+  const fetchAvailableCoupons = async () => {
+  try {
+    let response;
+    if (user) {
+      response = await fetch(`http://localhost:3000/user/${user}/coupons`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` // Add auth token if needed
+        }
+      });
+    } else {
+      response = await fetch('http://localhost:3000/coupons/active', {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to fetch coupons');
+    }
+
+    const data = await response.json();
+    setAvailableCoupons(data);
+    setCouponMessage({ text: '', type: '' });
+  } catch (err) {
+    console.error('Error fetching coupons:', err);
+    setAvailableCoupons([]);
+    setCouponMessage({ 
+      text: err.message || 'Failed to load coupons', 
+      type: 'error' 
+    });
+  }
+};
+
+  const handleCouponInputChange = (e) => {
+    setCouponInput(e.target.value);
+    setCouponMessage({ text: '', type: '' });
+  };
+
+  const applyManualCoupon = async () => {
+    if (!couponInput.trim()) {
+      setCouponMessage({ text: 'Please enter a coupon code', type: 'error' });
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:3000/coupons/apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          couponCode: couponInput,
+          userId: user || null,
+          cartItems: cart.map(item => ({
+            productId: item.id,
+            price: parseFloat(item.priceAfterDiscount),
+            quantity: item.quantitybuy
+          })),
+          subtotal: calculateSubtotal()
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to apply coupon');
+      }
+
+      if (data.success) {
+        setAppliedCoupon({
+          code: data.coupon.code,
+          type: data.coupon.type,
+          value: data.coupon.value,
+          discountAmount: data.coupon.discountAmount,
+          description: data.coupon.description
+        });
+
+        if (user) {
+          fetchAvailableCoupons();
+        }
+
+        setCouponMessage({ 
+          text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
+          type: 'success' 
+        });
+        setCouponInput('');
+      } else {
+        setCouponMessage({ text: data.message, type: 'error' });
+      }
+    } catch (error) {
+      console.error('Error applying coupon:', error);
+      setCouponMessage({ text: error.message, type: 'error' });
     }
   };
 
-  // Helper functions
+  const applyCoupon = async (coupon) => {
+    try {
+      const response = await fetch('http://localhost:3000/coupons/apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          couponCode: coupon.code,
+          userId: user || null,
+          cartItems: cart.map(item => ({
+            productId: item.id,
+            price: parseFloat(item.priceAfterDiscount),
+            quantity: item.quantitybuy
+          })),
+          subtotal: calculateSubtotal()
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to apply coupon');
+      }
+
+      if (data.success) {
+        setAppliedCoupon({
+          code: data.coupon.code,
+          type: data.coupon.type,
+          value: data.coupon.value,
+          discountAmount: data.coupon.discountAmount,
+          description: data.coupon.description
+        });
+
+        fetchAvailableCoupons();
+
+        setCouponMessage({ 
+          text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
+          type: 'success' 
+        });
+      } else {
+        setCouponMessage({ text: data.message, type: 'error' });
+      }
+    } catch (error) {
+      console.error('Error applying coupon:', error);
+      setCouponMessage({ text: error.message, type: 'error' });
+    }
+  };
+
+  const removeCoupon = async () => {
+    if (appliedCoupon && user) {
+      try {
+        await fetch(`http://localhost:3000/user/${user}/coupons/${appliedCoupon.code}/remove`, {
+          method: 'POST'
+        });
+      } catch (err) {
+        console.error('Error removing coupon:', err);
+      }
+    }
+    
+    setAppliedCoupon(null);
+    setCouponMessage({ text: 'Coupon removed', type: 'info' });
+    fetchAvailableCoupons();
+  };
+
   const calculatePriceAfterDiscount = (price, discount) => {
     return (price * (1 - discount / 100)).toFixed(2);
   };
@@ -159,7 +350,8 @@ const Cart = () => {
   const calculateTotal = () => {
     const subtotal = calculateSubtotal();
     if (appliedCoupon) {
-      return (subtotal - appliedCoupon.discountAmount).toFixed(2);
+      const total = subtotal - appliedCoupon.discountAmount;
+      return total > 0 ? total.toFixed(2) : '0.00';
     }
     return subtotal.toFixed(2);
   };
@@ -169,51 +361,14 @@ const Cart = () => {
   };
 
   const calculateTax = () => {
-    return (parseFloat(calculateTotal()) * 0.1).toFixed(2); // 10% tax
+    return (parseFloat(calculateTotal()) * 0.1).toFixed(2);
   };
 
   const calculateGrandTotal = () => {
-    return (parseFloat(calculateTotal()) + parseFloat(calculateTax())).toFixed(2);
+    const total = parseFloat(calculateTotal()) + parseFloat(calculateTax());
+    return total > 0 ? total.toFixed(2) : '0.00';
   };
 
-  // Coupon functions
-  const applyCoupon = async () => {
-    if (!couponCode.trim()) return;
-    
-    setCouponError('');
-    
-    try {
-      const response = await fetch(`http://localhost:3000/user/${user}/apply-coupon`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          couponCode,
-          cartItems: cart.map(item => ({
-            productId: item.id,
-            price: item.price,
-            quantity: item.quantitybuy
-          }))
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setAppliedCoupon(data.coupon);
-      } else {
-        setCouponError(data.message || 'Failed to apply coupon');
-      }
-    } catch (err) {
-      setCouponError('Error applying coupon');
-    }
-  };
-
-  const removeCoupon = () => {
-    setAppliedCoupon(null);
-    setCouponCode('');
-  };
-
-  // Cart operations
   const updateQuantity = async (id, newQuantity) => {
     try {
       const item = cart.find(item => item.id === id);
@@ -266,13 +421,16 @@ const Cart = () => {
       const updatedCart = cart.filter((item) => item.id !== id);
       setCart(updatedCart);
       localStorage.setItem('cart', JSON.stringify(updatedCart));
+      
+      if (updatedCart.length === 0) {
+        removeCoupon();
+      }
     } catch (error) {
       console.error('Error removing item:', error);
       alert('Failed to remove item. Please try again.');
     }
   };
 
-  // Checkout flow functions
   const handleCheckoutStart = () => {
     if (!user) {
       navigate('/login');
@@ -285,7 +443,18 @@ const Cart = () => {
       return;
     }
     
-    setCheckoutStep('details');
+    setCheckoutStep('address');
+  };
+
+  const handleAddressSubmit = (e) => {
+    e.preventDefault();
+    fetchAvailableCoupons();
+    setCheckoutStep('coupons');
+  };
+
+  const handleCouponSubmit = (e) => {
+    e.preventDefault();
+    setCheckoutStep('payment');
   };
 
   const handleInputChange = (e) => {
@@ -301,7 +470,6 @@ const Cart = () => {
     setIsProcessing(true);
     
     try {
-      // Prepare order data
       const order = {
         items: cart.map(item => ({
           productId: item.id,
@@ -328,7 +496,6 @@ const Cart = () => {
         status: 'processing'
       };
 
-      // Submit order to backend
       const response = await fetch(`http://localhost:3000/user/${user}/order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -341,12 +508,9 @@ const Cart = () => {
         throw new Error(data.message || 'Failed to create order');
       }
 
-      // Clear cart in the frontend state
       setCart([]);
       localStorage.removeItem('cart');
       
-      // Clear cart in backend if user is logged in
-      console.log(data);
       if (user) {
         await fetch(`http://localhost:3000/user/${user}/order/${data._id}/complete`,{
           method: 'POST'
@@ -365,7 +529,6 @@ const Cart = () => {
     }
   };
 
-  // Render functions for each step
   const renderCartItem = (item) => (
     <div key={item.id} className="bg-white rounded-xl shadow-sm p-4 flex flex-col sm:flex-row mb-4">
       <div className="flex-shrink-0 mb-4 sm:mb-0 sm:mr-4">
@@ -487,67 +650,6 @@ const Cart = () => {
               <div className="bg-white rounded-xl shadow-sm p-6 sticky top-4">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Order Summary</h2>
                 
-                {/* Coupon Section */}
-                <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                  {appliedCoupon ? (
-                    <div className="bg-green-50 p-3 rounded-md flex justify-between items-center">
-                      <div className="flex items-center">
-                        <FiCheckCircle className="text-green-500 mr-2" />
-                        <span className="font-medium">{appliedCoupon.code} applied</span>
-                        <span className="ml-2 text-sm text-green-700">
-                          -${appliedCoupon.discountAmount.toFixed(2)}
-                        </span>
-                      </div>
-                      <button 
-                        onClick={removeCoupon}
-                        className="text-gray-500 hover:text-gray-700"
-                      >
-                        <FiX />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex">
-                      <input
-                        type="text"
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value)}
-                        placeholder="Coupon code"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
-                      />
-                      <button
-                        onClick={applyCoupon}
-                        disabled={!couponCode.trim()}
-                        className={`px-4 py-2 rounded-r-md ${
-                          !couponCode.trim() ? 'bg-gray-300' : 'bg-indigo-600 hover:bg-indigo-700'
-                        } text-white`}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  )}
-                  {couponError && <p className="text-red-500 text-sm mt-1">{couponError}</p>}
-                </div>
-
-                {/* Available Coupons */}
-                {availableCoupons.length > 0 && !appliedCoupon && (
-                  <div className="mb-4 pt-2 border-t border-gray-200">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Available Coupons</h4>
-                    <ul className="space-y-2">
-                      {availableCoupons.slice(0, 3).map(coupon => (
-                        <li key={coupon._id} className="flex items-center">
-                          <FiTag className="text-indigo-500 mr-2" />
-                          <div>
-                            <p className="text-sm font-medium">{coupon.code} - {coupon.description}</p>
-                            <p className="text-xs text-gray-500">
-                              Valid until {new Date(coupon.validUntil).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal</span>
@@ -569,7 +671,7 @@ const Cart = () => {
                     <span className="text-gray-600">Tax (10%)</span>
                     <span>${calculateTax()}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-lg pt-3 border-t border-gray-200">
+                  <div className="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
                     <span>Total</span>
                     <span>${calculateGrandTotal()}</span>
                   </div>
@@ -607,7 +709,7 @@ const Cart = () => {
     </div>
   );
 
-  const renderDetailsForm = () => (
+  const renderAddressForm = () => (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm p-6">
         <button 
@@ -621,10 +723,7 @@ const Cart = () => {
           <FiUser className="mr-2" /> Shipping Information
         </h2>
 
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          setCheckoutStep('payment');
-        }}>
+        <form onSubmit={handleAddressSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="form-group">
               <label className="block text-gray-700 mb-2">Full Name *</label>
@@ -664,7 +763,6 @@ const Cart = () => {
                     onChange={(e) => {
                       setUseSavedAddress(e.target.checked);
                       if (!e.target.checked) {
-                        // Clear address fields when unchecking
                         setFormData(prev => ({
                           ...prev,
                           address: '',
@@ -674,7 +772,6 @@ const Cart = () => {
                           country: 'US'
                         }));
                       } else if (selectedAddressId) {
-                        // Populate with selected address
                         const selectedAddress = userAddresses.find(addr => addr._id === selectedAddressId);
                         if (selectedAddress) {
                           setFormData(prev => ({
@@ -703,17 +800,7 @@ const Cart = () => {
                   onChange={(e) => {
                     const addressId = e.target.value;
                     setSelectedAddressId(addressId);
-                    const selectedAddress = userAddresses.find(addr => addr._id === addressId);
-                    if (selectedAddress) {
-                      setFormData(prev => ({
-                        ...prev,
-                        address: selectedAddress.street,
-                        city: selectedAddress.city,
-                        state: selectedAddress.state,
-                        zipCode: selectedAddress.zipCode,
-                        country: selectedAddress.country
-                      }));
-                    }
+                    handleUseSavedAddress(addressId);
                   }}
                   className="w-full px-4 py-2 border rounded-lg mb-4 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
                   required
@@ -839,6 +926,219 @@ const Cart = () => {
               type="submit"
               className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-300"
             >
+              Continue to Coupons
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  const renderCouponSelection = () => (
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm p-6">
+        <button 
+          onClick={() => setCheckoutStep('address')}
+          className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6"
+        >
+          <FiArrowLeft className="mr-1" /> Back to Address
+        </button>
+
+        <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+          <FiTag className="mr-2" /> Apply Coupon
+        </h2>
+
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          applyManualCoupon();
+        }}>
+          <div className="mb-6">
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <FiUser className="mr-2" /> Customer Information
+              </h3>
+              <div className="space-y-2">
+                <p><span className="text-gray-600">Name:</span> {formData.name}</p>
+                <p><span className="text-gray-600">Email:</span> {formData.email}</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <FiMapPin className="mr-2" /> Shipping Address
+              </h3>
+              <p>{formData.address}</p>
+              <p>{formData.city}, {formData.state} {formData.zipCode}</p>
+              <p>{formData.country}</p>
+            </div>
+
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Available Coupons</h3>
+              
+              {couponMessage.text && (
+                <div className={`mb-4 p-3 rounded-md ${
+                  couponMessage.type === 'error' ? 'bg-red-50 text-red-700' :
+                  couponMessage.type === 'success' ? 'bg-green-50 text-green-700' :
+                  'bg-blue-50 text-blue-700'
+                }`}>
+                  {couponMessage.text}
+                </div>
+              )}
+
+              <div className="mb-4">
+                <label className="block text-gray-700 mb-2">Enter Coupon Code</label>
+                <div className="flex">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={handleCouponInputChange}
+                    className="flex-1 px-4 py-2 border rounded-l-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                    placeholder="Enter coupon code"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-r-lg hover:bg-indigo-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              {availableCoupons.length > 0 ? (
+                <div className="space-y-3">
+                  {availableCoupons.map(coupon => {
+                    const isApplicable = applicableCoupons.includes(coupon._id);
+                    const isApplied = appliedCoupon?.code === coupon.code;
+                    
+                    return (
+                      <div 
+                        key={coupon._id}
+                        className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                          isApplied 
+                            ? 'border-indigo-500 bg-indigo-50' 
+                            : isApplicable
+                              ? 'border-green-500 bg-green-50 hover:border-green-600'
+                              : 'border-red-500 bg-red-50 hover:border-red-600'
+                        } ${
+                          coupon.remainingUses <= 0 ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        onClick={() => isApplicable && coupon.remainingUses > 0 && applyCoupon(coupon)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center">
+                              <FiTag className={`mr-2 ${
+                                isApplied 
+                                  ? 'text-indigo-500' 
+                                  : isApplicable 
+                                    ? 'text-green-500' 
+                                    : 'text-red-500'
+                              }`} />
+                              <span className="font-medium">{coupon.code}</span>
+                              {coupon.remainingUses <= 0 && (
+                                <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">
+                                  Exhausted
+                                </span>
+                              )}
+                              {!isApplicable && (
+                                <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">
+                                  Not applicable
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">{coupon.description}</p>
+                            <div className="flex items-center mt-2 text-xs text-gray-500">
+                              <span className="mr-3">
+                                Valid until: {new Date(coupon.validUntil).toLocaleDateString()}
+                              </span>
+                              {coupon.minOrder && (
+                                <span>Min. order: ${coupon.minOrder}</span>
+                              )}
+                              {coupon.remainingUses > 0 && (
+                                <span className="ml-3">
+                                  Remaining uses: {coupon.remainingUses}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            isApplied 
+                              ? 'bg-indigo-100 text-indigo-800' 
+                              : isApplicable
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                          }`}>
+                            {coupon.type === 'percentage' ? `${coupon.value}% OFF` : `$${coupon.value} OFF`}
+                            {coupon.maxDiscount && coupon.type === 'percentage' && (
+                              <span className="block text-xs">(Max ${coupon.maxDiscount})</span>
+                            )}
+                          </span>
+                        </div>
+                        {!isApplicable && (
+                          <div className="mt-2 text-xs text-red-600">
+                            {coupon.applicabilityMessage || 'This coupon is not applicable to your current cart'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="bg-gray-50 p-4 rounded-lg text-center">
+                  <p className="text-gray-600">No coupons available</p>
+                </div>
+              )}
+
+              {appliedCoupon && (
+                <div className="mt-4 flex items-center justify-between bg-green-50 p-3 rounded-md">
+                  <div className="flex items-center">
+                    <FiCheckCircle className="text-green-500 mr-2" />
+                    <span className="font-medium">{appliedCoupon.code} applied</span>
+                    <span className="ml-2 text-sm text-green-700">
+                      -${appliedCoupon.discountAmount.toFixed(2)}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={removeCoupon}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <FiX />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-gray-50 p-4 rounded-lg mb-6">
+            <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+              <FiDollarSign className="mr-2" /> Order Total
+            </h3>
+            <div className="flex justify-between text-gray-600">
+              <span>Subtotal</span>
+              <span>${calculateSubtotal().toFixed(2)}</span>
+            </div>
+            {appliedCoupon && (
+              <div className="flex justify-between text-green-600">
+                <span>Discount</span>
+                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-gray-600">
+              <span>Tax</span>
+              <span>${calculateTax()}</span>
+            </div>
+            <div className="flex justify-between font-bold text-lg pt-2 border-t border-gray-200">
+              <span>Total</span>
+              <span>${calculateGrandTotal()}</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setCheckoutStep('payment')}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-300"
+            >
               Continue to Payment
             </button>
           </div>
@@ -851,10 +1151,10 @@ const Cart = () => {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm p-6">
         <button 
-          onClick={() => setCheckoutStep(userAddresses.length > 0 ? 'address' : 'details')}
+          onClick={() => setCheckoutStep('coupons')}
           className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6"
         >
-          <FiArrowLeft className="mr-1" /> Back to {userAddresses.length > 0 ? 'Address' : 'Details'}
+          <FiArrowLeft className="mr-1" /> Back to Coupons
         </button>
 
         <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
@@ -880,6 +1180,30 @@ const Cart = () => {
               <p>{formData.address}</p>
               <p>{formData.city}, {formData.state} {formData.zipCode}</p>
               <p>{formData.country}</p>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <FiTag className="mr-2" /> Applied Coupon
+              </h3>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium">{appliedCoupon.code}</span>
+                    <span className="ml-2 text-green-600">
+                      -${appliedCoupon.discountAmount.toFixed(2)}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={removeCoupon}
+                    className="text-gray-500 hover:text-gray-700 text-sm"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <p className="text-gray-600">No coupon applied</p>
+              )}
             </div>
 
             <label className="block text-gray-700 mb-2">Payment Method *</label>
@@ -1040,8 +1364,10 @@ const Cart = () => {
   }
 
   switch (checkoutStep) {
-    case 'details':
-      return renderDetailsForm();
+    case 'address':
+      return renderAddressForm();
+    case 'coupons':
+      return renderCouponSelection();
     case 'payment':
       return renderPaymentForm();
     case 'complete':
