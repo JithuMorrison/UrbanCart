@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import Header from './header';
 import Home from './homepg';
 import Footer from './footer';
-import UserDashboard from './userdash'
+import UserDashboard from './user/dashboard/userdash';
 import AdminDashboard from './admindash';
 import Login from './login';
 import Register from './register';

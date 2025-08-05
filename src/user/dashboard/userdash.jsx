@@ -114,6 +114,31 @@ const UserDashboard = () => {
     });
   };
 
+  const handleReorder = async (order) => {
+  try {
+    // Add all items from the order to the cart
+    await Promise.all(order.items.map(item => 
+      fetch('http://localhost:3000/cart/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: localStorage.getItem('userId'),
+          productId: item.product._id,
+          quantity: item.quantity
+        })
+      })
+    ));
+    
+    // Navigate to cart
+    navigate('/cart');
+  } catch (err) {
+    console.error('Error reordering:', err);
+    alert('Failed to reorder items. Please try again.');
+  }
+};
+
   // Add new address
   const handleAddAddress = async () => {
     try {
@@ -196,6 +221,35 @@ const UserDashboard = () => {
       console.error('Error deleting address:', err);
     }
   };
+
+  const handleCancelOrder = async (orderId) => {
+  if (!window.confirm('Are you sure you want to cancel this order?')) return;
+  
+  try {
+    const response = await fetch(`http://localhost:3000/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        status: 'cancelled'
+      })
+    });
+    
+    if (response.ok) {
+      // Refresh user data to show updated order status
+      const updatedResponse = await fetch(`http://localhost:3000/user/${userId}`);
+      const updatedData = await updatedResponse.json();
+      setUserData(updatedData);
+      alert('Order has been cancelled');
+    } else {
+      throw new Error('Failed to cancel order');
+    }
+  } catch (err) {
+    console.error('Error cancelling order:', err);
+    alert('Failed to cancel order. Please try again.');
+  }
+};
 
   // Set default address
   const handleSetDefaultAddress = async (addressId) => {
@@ -373,10 +427,63 @@ const UserDashboard = () => {
                 <p>You have {userData.orders?.length || 0} orders in your history.</p>
               </div>
               
-              {userData.orders?.length > 0 && (
+              {/* Delivered Orders Section */}
+              {userData.orders?.filter(order => order.status === 'delivered').length > 0 && (
                 <div className="bg-white rounded-lg shadow-md p-6">
                   <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">Recent Orders</h2>
+                    <h2 className="text-xl font-semibold">Recently Delivered</h2>
+                    <button 
+                      onClick={() => setActiveTab('orders')}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      View all orders
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {userData.orders
+                      .filter(order => order.status === 'delivered')
+                      .slice(0, 3)
+                      .map(order => (
+                        <div key={order._id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-3">
+                              {getStatusIcon(order.status)}
+                              <div>
+                                <Link 
+                                  to={`/orders/${order._id}`}
+                                  className="font-medium hover:text-blue-600"
+                                >
+                                  Order #{order._id.slice(-8)}
+                                </Link>
+                                <p className="text-sm text-gray-500">
+                                  Delivered on {new Date(order.deliveryDate || order.orderDate).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium">${order.total.toFixed(2)}</p>
+                              <button 
+                                onClick={() => handleReorder(order)}
+                                className="mt-2 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                              >
+                                Reorder
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Shipped/Processing Orders Section */}
+              {userData.orders?.filter(order => 
+                order.status === 'shipped' || order.status === 'processing'
+              ).length > 0 && (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold">Orders in Progress</h2>
                     <button 
                       onClick={() => setActiveTab('orders')}
                       className="text-blue-600 hover:text-blue-800"
@@ -386,41 +493,98 @@ const UserDashboard = () => {
                   </div>
                   
                   <div className="space-y-4">
-                    {userData.orders.slice(0, 3).map(order => (
-                      <div key={order._id} className="border-b pb-4 last:border-0 last:pb-0">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center space-x-3">
-                            {getStatusIcon(order.status)}
-                            <div>
-                              <Link 
-                                to={`/orders/${order._id}`}
-                                className="font-medium hover:text-blue-600"
-                              >
-                                Order #{order._id.slice(-8)}
-                              </Link>
-                              <p className="text-sm text-gray-500">
-                                {new Date(order.orderDate).toLocaleDateString()}
-                              </p>
+                    {userData.orders
+                      .filter(order => order.status === 'shipped' || order.status === 'processing')
+                      .slice(0, 3)
+                      .map(order => (
+                        <div key={order._id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-3">
+                              {getStatusIcon(order.status)}
+                              <div>
+                                <Link 
+                                  to={`/orders/${order._id}`}
+                                  className="font-medium hover:text-blue-600"
+                                >
+                                  Order #{order._id.slice(-8)}
+                                </Link>
+                                <p className="text-sm text-gray-500">
+                                  {new Date(order.orderDate).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium">${order.total.toFixed(2)}</p>
+                              <span className={`text-xs px-2 py-1 rounded-full ${
+                                order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                                'bg-purple-100 text-purple-800'
+                              }`}>
+                                {order.status}
+                              </span>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-medium">${order.total.toFixed(2)}</p>
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-                              order.status === 'shipped' ? 'bg-purple-100 text-purple-800' :
-                              'bg-green-100 text-green-800'
-                            }`}>
-                              {order.status}
-                            </span>
-                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               )}
               
+              {/* Pending Orders Section */}
+              {userData.orders?.filter(order => order.status === 'pending').length > 0 && (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold">Pending Orders</h2>
+                    <button 
+                      onClick={() => setActiveTab('orders')}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      View all
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {userData.orders
+                      .filter(order => order.status === 'pending')
+                      .slice(0, 3)
+                      .map(order => (
+                        <div key={order._id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-3">
+                              {getStatusIcon(order.status)}
+                              <div>
+                                <Link 
+                                  to={`/orders/${order._id}`}
+                                  className="font-medium hover:text-blue-600"
+                                >
+                                  Order #{order._id.slice(-8)}
+                                </Link>
+                                <p className="text-sm text-gray-500">
+                                  {new Date(order.orderDate).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium">${order.total.toFixed(2)}</p>
+                              <div className="mt-2 flex space-x-2">
+                                <button className="text-sm bg-red-100 text-red-800 px-3 py-1 rounded hover:bg-red-200">
+                                  Cancel
+                                </button>
+                                <Link 
+                                  to={`/orders/${order._id}`}
+                                  className="text-sm bg-gray-100 text-gray-800 px-3 py-1 rounded hover:bg-gray-200"
+                                >
+                                  Details
+                                </Link>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Rest of the overview content (wishlist, etc.) */}
               {userData.wishlist?.length > 0 && (
                 <div className="bg-white rounded-lg shadow-md p-6">
                   <div className="flex justify-between items-center mb-4">
@@ -456,64 +620,201 @@ const UserDashboard = () => {
               <h2 className="text-xl font-semibold mb-6">Your Orders</h2>
               
               {userData.orders?.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {userData.orders.map(order => (
-                        <tr key={order._id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <Link 
-                              to={`/orders/${order._id}`}
-                              className="text-blue-600 hover:text-blue-800"
-                            >
-                              #{order._id.slice(-8)}
-                            </Link>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(order.orderDate).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              {getStatusIcon(order.status)}
-                              <span className="ml-2 capitalize">{order.status}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            ${order.total.toFixed(2)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex space-x-2">
-                              <Link 
-                                to={`/orders/${order._id}`}
-                                className="text-blue-600 hover:text-blue-800"
-                              >
-                                View
-                              </Link>
-                              {order.status === 'pending' && (
-                                <button className="text-red-600 hover:text-red-800">
-                                  Cancel
-                                </button>
-                              )}
-                              {order.status === 'delivered' && (
-                                <button className="text-green-600 hover:text-green-800">
-                                  Reorder
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-8">
+                  {/* Delivered Orders */}
+                  {userData.orders.filter(order => order.status === 'delivered').length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-medium mb-4 flex items-center">
+                        <FiCheckCircle className="text-green-500 mr-2" />
+                        Delivered Orders
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Delivered On</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {userData.orders
+                              .filter(order => order.status === 'delivered')
+                              .map(order => (
+                                <tr key={order._id}>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <Link 
+                                      to={`/orders/${order._id}`}
+                                      className="text-blue-600 hover:text-blue-800"
+                                    >
+                                      #{order._id.slice(-8)}
+                                    </Link>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {new Date(order.orderDate).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {new Date(order.deliveryDate || order.orderDate).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    ${order.total.toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <div className="flex space-x-2 justify-end">
+                                      <button
+                                        onClick={() => handleReorder(order)}
+                                        className="text-white bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-700"
+                                      >
+                                        Reorder
+                                      </button>
+                                      <Link 
+                                        to={`/orders/${order._id}`}
+                                        className="bg-gray-100 text-gray-800 px-3 py-1 rounded text-sm hover:bg-gray-200"
+                                      >
+                                        View
+                                      </Link>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shipped/Processing Orders */}
+                  {userData.orders.filter(order => 
+                    order.status === 'shipped' || order.status === 'processing'
+                  ).length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-medium mb-4 flex items-center">
+                        <FiTruck className="text-purple-500 mr-2" />
+                        Orders in Progress
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {userData.orders
+                              .filter(order => order.status === 'shipped' || order.status === 'processing')
+                              .map(order => (
+                                <tr key={order._id}>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <Link 
+                                      to={`/orders/${order._id}`}
+                                      className="text-blue-600 hover:text-blue-800"
+                                    >
+                                      #{order._id.slice(-8)}
+                                    </Link>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {new Date(order.orderDate).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="flex items-center">
+                                      {getStatusIcon(order.status)}
+                                      <span className="ml-2 capitalize">{order.status}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    ${order.total.toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <div className="flex space-x-2 justify-end">
+                                      <Link 
+                                        to={`/orders/${order._id}`}
+                                        className="bg-gray-100 text-gray-800 px-3 py-1 rounded text-sm hover:bg-gray-200"
+                                      >
+                                        View
+                                      </Link>
+                                      {order.status === 'processing' && (
+                                        <button 
+                                          onClick={() => handleCancelOrder(order._id)}
+                                          className="bg-red-100 text-red-800 px-3 py-1 rounded text-sm hover:bg-red-200"
+                                        >
+                                          Cancel
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pending Orders */}
+                  {userData.orders.filter(order => order.status === 'pending').length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-medium mb-4 flex items-center">
+                        <FiClock className="text-yellow-500 mr-2" />
+                        Pending Orders
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {userData.orders
+                              .filter(order => order.status === 'pending')
+                              .map(order => (
+                                <tr key={order._id}>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <Link 
+                                      to={`/orders/${order._id}`}
+                                      className="text-blue-600 hover:text-blue-800"
+                                    >
+                                      #{order._id.slice(-8)}
+                                    </Link>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {new Date(order.orderDate).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    ${order.total.toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <div className="flex space-x-2 justify-end">
+                                      <button
+                                        onClick={() => handleCancelOrder(order._id)}
+                                        className="bg-red-100 text-red-800 px-3 py-1 rounded text-sm hover:bg-red-200"
+                                      >
+                                        Cancel Order
+                                      </button>
+                                      <Link 
+                                        to={`/orders/${order._id}`}
+                                        className="bg-gray-100 text-gray-800 px-3 py-1 rounded text-sm hover:bg-gray-200"
+                                      >
+                                        Details
+                                      </Link>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8">
