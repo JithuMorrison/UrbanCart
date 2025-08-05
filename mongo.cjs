@@ -1509,68 +1509,56 @@ app.post('/user/:userId/order/:orderId/cancel', async (req, res) => {
 // Get valid coupons for a user
 app.get('/user/:userId/coupons', async (req, res) => {
   try {
+    const { userId } = req.params;
+
     // Validate user ID
-    if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ message: 'Invalid user ID' });
     }
 
-    const user = await User.findById(req.params.userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
     const now = new Date();
-    
-    // First find all potentially valid coupons
-    const validCoupons = await Discount.find({
-      $and: [
-        {
-          $or: [
-            { _id: { $in: user.coupons.map(c => c.discountId) } }, // User's coupons
-            { userGroups: 'all-users' }, // General coupons
-            { userGroups: 'new-user' } // New user coupons
-          ]
-        },
-        { isActive: true },
-        { validFrom: { $lte: now } },
-        { validUntil: { $gte: now } }
-      ]
+    const userCoupons = user.coupons || [];
+
+    const discountIds = userCoupons.map(c => c.discountId);
+
+    // Fetch only the discount documents from user.coupons
+    const discounts = await Discount.find({
+      _id: { $in: discountIds },
+      isActive: true,
+      validFrom: { $lte: now },
+      validUntil: { $gte: now }
     }).lean();
 
-    // Then filter in JavaScript for coupons that haven't exceeded max uses
-    const usableCoupons = validCoupons.filter(coupon => {
-      // Check max uses
-      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-        return false;
-      }
+    // Merge user coupon info (used, obtainedAt) and filter based on conditions
+    const couponsWithRemaining = discounts
+      .map(discount => {
+        const userCoupon = userCoupons.find(c => c.discountId.toString() === discount._id.toString());
 
-      // Check if single-use and already used
-      if (coupon.singleUse) {
-        const userCoupon = user.coupons.find(c => c.discountId.equals(coupon._id));
-        if (userCoupon?.used) {
-          return false;
-        }
-      }
+        // Exclude if single-use and already used
+        if (discount.singleUse && userCoupon?.used) return null;
 
-      // Check new user status if coupon is for new users
-      if (coupon.userGroups?.includes('new-user') && user.firstOrderDiscountUsed) {
-        return false;
-      }
+        // Exclude if maxUses reached
+        if (discount.maxUses && discount.usedCount >= discount.maxUses) return null;
 
-      return true;
-    });
-
-    // Add remaining uses count
-    const couponsWithRemaining = usableCoupons.map(coupon => ({
-      ...coupon,
-      remainingUses: coupon.maxUses ? coupon.maxUses - coupon.usedCount : Infinity
-    }));
+        return {
+          ...discount,
+          used: userCoupon?.used || false,
+          obtainedAt: userCoupon?.obtainedAt || null,
+          remainingUses: discount.maxUses ? discount.maxUses - discount.usedCount : Infinity
+        };
+      })
+      .filter(Boolean); // Remove nulls (filtered out coupons)
 
     res.json(couponsWithRemaining);
   } catch (err) {
     console.error('Error in /user/:userId/coupons:', err);
-    res.status(500).json({ 
-      message: 'Server error while fetching coupons',
+    res.status(500).json({
+      message: 'Server error while fetching user coupons',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
