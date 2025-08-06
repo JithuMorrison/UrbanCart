@@ -35,7 +35,7 @@ const Cart = () => {
   const [userAddresses, setUserAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [useSavedAddress, setUseSavedAddress] = useState(false);
-  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [appliedCoupons, setAppliedCoupons] = useState([]);
   const [availableCoupons, setAvailableCoupons] = useState([]);
   const [couponInput, setCouponInput] = useState('');
   const [couponMessage, setCouponMessage] = useState({ text: '', type: '' });
@@ -218,126 +218,144 @@ const Cart = () => {
   };
 
   const applyManualCoupon = async () => {
-    if (!couponInput.trim()) {
-      setCouponMessage({ text: 'Please enter a coupon code', type: 'error' });
+  if (!couponInput.trim()) {
+    setCouponMessage({ text: 'Please enter a coupon code', type: 'error' });
+    return;
+  }
+
+  try {
+    const response = await fetch('http://localhost:3000/coupons/apply', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        couponCode: couponInput,
+        userId: user || null,
+        cartItems: cart.map(item => ({
+          productId: item.id,
+          price: parseFloat(item.priceAfterDiscount),
+          quantity: item.quantitybuy
+        })),
+        subtotal: calculateSubtotal()
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to apply coupon');
+    }
+
+    if (data.success) {
+      // Check if coupon is already applied
+      if (appliedCoupons.some(c => c.code === data.coupon.code)) {
+        setCouponMessage({ 
+          text: 'This coupon is already applied', 
+          type: 'error' 
+        });
+        return;
+      }
+
+      setAppliedCoupons(prev => [...prev, {
+        code: data.coupon.code,
+        type: data.coupon.type,
+        value: data.coupon.value,
+        discountAmount: data.coupon.discountAmount,
+        description: data.coupon.description
+      }]);
+
+      if (user) {
+        fetchAvailableCoupons();
+      }
+
+      setCouponMessage({ 
+        text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
+        type: 'success' 
+      });
+      setCouponInput('');
+    } else {
+      setCouponMessage({ text: data.message, type: 'error' });
+    }
+  } catch (error) {
+    console.error('Error applying coupon:', error);
+    setCouponMessage({ text: error.message, type: 'error' });
+  }
+};
+
+const applyCoupon = async (coupon) => {
+  try {
+    // Check if coupon is already applied
+    if (appliedCoupons.some(c => c.code === coupon.code)) {
+      setCouponMessage({ 
+        text: 'This coupon is already applied', 
+        type: 'error' 
+      });
       return;
     }
 
-    try {
-      const response = await fetch('http://localhost:3000/coupons/apply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          couponCode: couponInput,
-          userId: user || null,
-          cartItems: cart.map(item => ({
-            productId: item.id,
-            price: parseFloat(item.priceAfterDiscount),
-            quantity: item.quantitybuy
-          })),
-          subtotal: calculateSubtotal()
-        })
+    const response = await fetch('http://localhost:3000/coupons/apply', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        couponCode: coupon.code,
+        userId: user || null,
+        cartItems: cart.map(item => ({
+          productId: item.id,
+          price: parseFloat(item.priceAfterDiscount),
+          quantity: item.quantitybuy
+        })),
+        subtotal: calculateSubtotal()
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to apply coupon');
+    }
+
+    if (data.success) {
+      setAppliedCoupons(prev => [...prev, {
+        code: data.coupon.code,
+        type: data.coupon.type,
+        value: data.coupon.value,
+        discountAmount: data.coupon.discountAmount,
+        description: data.coupon.description
+      }]);
+
+      fetchAvailableCoupons();
+
+      setCouponMessage({ 
+        text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
+        type: 'success' 
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to apply coupon');
-      }
-
-      if (data.success) {
-        setAppliedCoupon({
-          code: data.coupon.code,
-          type: data.coupon.type,
-          value: data.coupon.value,
-          discountAmount: data.coupon.discountAmount,
-          description: data.coupon.description
-        });
-
-        if (user) {
-          fetchAvailableCoupons();
-        }
-
-        setCouponMessage({ 
-          text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
-          type: 'success' 
-        });
-        setCouponInput('');
-      } else {
-        setCouponMessage({ text: data.message, type: 'error' });
-      }
-    } catch (error) {
-      console.error('Error applying coupon:', error);
-      setCouponMessage({ text: error.message, type: 'error' });
+    } else {
+      setCouponMessage({ text: data.message, type: 'error' });
     }
-  };
+  } catch (error) {
+    console.error('Error applying coupon:', error);
+    setCouponMessage({ text: error.message, type: 'error' });
+  }
+};
 
-  const applyCoupon = async (coupon) => {
+  const removeCoupon = async (couponCode) => {
+  if (user) {
     try {
-      const response = await fetch('http://localhost:3000/coupons/apply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          couponCode: coupon.code,
-          userId: user || null,
-          cartItems: cart.map(item => ({
-            productId: item.id,
-            price: parseFloat(item.priceAfterDiscount),
-            quantity: item.quantitybuy
-          })),
-          subtotal: calculateSubtotal()
-        })
+      await fetch(`http://localhost:3000/user/${user}/coupons/${couponCode}/remove`, {
+        method: 'POST'
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to apply coupon');
-      }
-
-      if (data.success) {
-        setAppliedCoupon({
-          code: data.coupon.code,
-          type: data.coupon.type,
-          value: data.coupon.value,
-          discountAmount: data.coupon.discountAmount,
-          description: data.coupon.description
-        });
-
-        fetchAvailableCoupons();
-
-        setCouponMessage({ 
-          text: `Coupon applied successfully! -${data.coupon.discountAmount}`, 
-          type: 'success' 
-        });
-      } else {
-        setCouponMessage({ text: data.message, type: 'error' });
-      }
-    } catch (error) {
-      console.error('Error applying coupon:', error);
-      setCouponMessage({ text: error.message, type: 'error' });
+    } catch (err) {
+      console.error('Error removing coupon:', err);
     }
-  };
-
-  const removeCoupon = async () => {
-    if (appliedCoupon && user) {
-      try {
-        await fetch(`http://localhost:3000/user/${user}/coupons/${appliedCoupon.code}/remove`, {
-          method: 'POST'
-        });
-      } catch (err) {
-        console.error('Error removing coupon:', err);
-      }
-    }
-    
-    setAppliedCoupon(null);
-    setCouponMessage({ text: 'Coupon removed', type: 'info' });
-    fetchAvailableCoupons();
-  };
+  }
+  
+  setAppliedCoupons(prev => prev.filter(c => c.code !== couponCode));
+  setCouponMessage({ text: 'Coupon removed', type: 'info' });
+  fetchAvailableCoupons();
+};
 
   const calculatePriceAfterDiscount = (price, discount) => {
     return (price * (1 - discount / 100)).toFixed(2);
@@ -349,11 +367,14 @@ const Cart = () => {
 
   const calculateTotal = () => {
     const subtotal = calculateSubtotal();
-    if (appliedCoupon) {
-      const total = subtotal - appliedCoupon.discountAmount;
-      return total > 0 ? total.toFixed(2) : '0.00';
-    }
-    return subtotal.toFixed(2);
+    const totalDiscount = appliedCoupons.reduce((sum, coupon) => sum + coupon.discountAmount, 0);
+    const total = subtotal - totalDiscount;
+    return total > 0 ? total.toFixed(2) : '0.00';
+  };
+
+  const calculateGrandTotal = () => {
+    const total = parseFloat(calculateTotal()) + parseFloat(calculateTax());
+    return total > 0 ? total.toFixed(2) : '0.00';
   };
 
   const calculateSubtotalForItem = (item) => {
@@ -362,11 +383,6 @@ const Cart = () => {
 
   const calculateTax = () => {
     return (parseFloat(calculateTotal()) * 0.1).toFixed(2);
-  };
-
-  const calculateGrandTotal = () => {
-    const total = parseFloat(calculateTotal()) + parseFloat(calculateTax());
-    return total > 0 ? total.toFixed(2) : '0.00';
   };
 
   const updateQuantity = async (id, newQuantity) => {
@@ -488,8 +504,8 @@ const Cart = () => {
           email: formData.email
         },
         paymentMethod: formData.paymentMethod,
-        couponCode: appliedCoupon?.code,
-        discountAmount: appliedCoupon?.discountAmount || 0,
+        appliedCoupons: appliedCoupons.map(c => c.code),
+        discountAmount: appliedCoupons.reduce((sum, c) => sum + c.discountAmount, 0),
         subtotal: parseFloat(calculateSubtotal()),
         tax: parseFloat(calculateTax()),
         total: parseFloat(calculateGrandTotal()),
@@ -656,10 +672,26 @@ const Cart = () => {
                     <span>${calculateSubtotal().toFixed(2)}</span>
                   </div>
                   
-                  {appliedCoupon && (
-                    <div className="flex justify-between text-green-600">
-                      <span className="text-gray-600">Discount</span>
-                      <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
+                  {appliedCoupons.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <h4 className="font-medium">Applied Coupons:</h4>
+                      {appliedCoupons.map(coupon => (
+                        <div key={coupon.code} className="flex items-center justify-between bg-green-50 p-3 rounded-md">
+                          <div className="flex items-center">
+                            <FiCheckCircle className="text-green-500 mr-2" />
+                            <span className="font-medium">{coupon.code}</span>
+                            <span className="ml-2 text-sm text-green-700">
+                              -${coupon.discountAmount.toFixed(2)}
+                            </span>
+                          </div>
+                          <button 
+                            onClick={() => removeCoupon(coupon.code)}
+                            className="text-gray-500 hover:text-gray-700"
+                          >
+                            <FiX />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                   
@@ -905,11 +937,19 @@ const Cart = () => {
               <span>Subtotal</span>
               <span>${calculateSubtotal().toFixed(2)}</span>
             </div>
-            {appliedCoupon && (
-              <div className="flex justify-between text-green-600">
-                <span>Discount</span>
-                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
-              </div>
+            {appliedCoupons.length > 0 && (
+              <>
+                {appliedCoupons.map(coupon => (
+                  <div key={coupon.code} className="flex justify-between text-green-600">
+                    <span>Discount ({coupon.code})</span>
+                    <span>-${coupon.discountAmount.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-green-600 font-medium">
+                  <span>Total Discount</span>
+                  <span>-${appliedCoupons.reduce((sum, c) => sum + c.discountAmount, 0).toFixed(2)}</span>
+                </div>
+              </>
             )}
             <div className="flex justify-between text-gray-600">
               <span>Tax</span>
@@ -1008,7 +1048,7 @@ const Cart = () => {
                 <div className="space-y-3">
                   {availableCoupons.map(coupon => {
                     const isApplicable = applicableCoupons.includes(coupon._id);
-                    const isApplied = appliedCoupon?.code === coupon.code;
+                    const isApplied = appliedCoupons?.some(c => c.code === coupon.code);
                     
                     return (
                       <div 
@@ -1089,21 +1129,26 @@ const Cart = () => {
                 </div>
               )}
 
-              {appliedCoupon && (
-                <div className="mt-4 flex items-center justify-between bg-green-50 p-3 rounded-md">
-                  <div className="flex items-center">
-                    <FiCheckCircle className="text-green-500 mr-2" />
-                    <span className="font-medium">{appliedCoupon.code} applied</span>
-                    <span className="ml-2 text-sm text-green-700">
-                      -${appliedCoupon.discountAmount.toFixed(2)}
-                    </span>
-                  </div>
-                  <button 
-                    onClick={removeCoupon}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    <FiX />
-                  </button>
+              {appliedCoupons.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h4 className="font-medium">Applied Coupons:</h4>
+                  {appliedCoupons.map(coupon => (
+                    <div key={coupon.code} className="flex items-center justify-between bg-green-50 p-3 rounded-md">
+                      <div className="flex items-center">
+                        <FiCheckCircle className="text-green-500 mr-2" />
+                        <span className="font-medium">{coupon.code}</span>
+                        <span className="ml-2 text-sm text-green-700">
+                          -${coupon.discountAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => removeCoupon(coupon.code)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <FiX />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1117,11 +1162,19 @@ const Cart = () => {
               <span>Subtotal</span>
               <span>${calculateSubtotal().toFixed(2)}</span>
             </div>
-            {appliedCoupon && (
-              <div className="flex justify-between text-green-600">
-                <span>Discount</span>
-                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
-              </div>
+            {appliedCoupons.length > 0 && (
+              <>
+                {appliedCoupons.map(coupon => (
+                  <div key={coupon.code} className="flex justify-between text-green-600">
+                    <span>Discount ({coupon.code})</span>
+                    <span>-${coupon.discountAmount.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-green-600 font-medium">
+                  <span>Total Discount</span>
+                  <span>-${appliedCoupons.reduce((sum, c) => sum + c.discountAmount, 0).toFixed(2)}</span>
+                </div>
+              </>
             )}
             <div className="flex justify-between text-gray-600">
               <span>Tax</span>
@@ -1186,23 +1239,27 @@ const Cart = () => {
               <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
                 <FiTag className="mr-2" /> Applied Coupon
               </h3>
-              {appliedCoupon ? (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="font-medium">{appliedCoupon.code}</span>
-                    <span className="ml-2 text-green-600">
-                      -${appliedCoupon.discountAmount.toFixed(2)}
-                    </span>
-                  </div>
-                  <button 
-                    onClick={removeCoupon}
-                    className="text-gray-500 hover:text-gray-700 text-sm"
-                  >
-                    Remove
-                  </button>
+              {appliedCoupons.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h4 className="font-medium">Applied Coupons:</h4>
+                  {appliedCoupons.map(coupon => (
+                    <div key={coupon.code} className="flex items-center justify-between bg-green-50 p-3 rounded-md">
+                      <div className="flex items-center">
+                        <FiCheckCircle className="text-green-500 mr-2" />
+                        <span className="font-medium">{coupon.code}</span>
+                        <span className="ml-2 text-sm text-green-700">
+                          -${coupon.discountAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => removeCoupon(coupon.code)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <FiX />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <p className="text-gray-600">No coupon applied</p>
               )}
             </div>
 
@@ -1283,11 +1340,19 @@ const Cart = () => {
               <span>Subtotal</span>
               <span>${calculateSubtotal().toFixed(2)}</span>
             </div>
-            {appliedCoupon && (
-              <div className="flex justify-between text-green-600">
-                <span>Discount</span>
-                <span>-${appliedCoupon.discountAmount.toFixed(2)}</span>
-              </div>
+            {appliedCoupons.length > 0 && (
+              <>
+                {appliedCoupons.map(coupon => (
+                  <div key={coupon.code} className="flex justify-between text-green-600">
+                    <span>Discount ({coupon.code})</span>
+                    <span>-${coupon.discountAmount.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-green-600 font-medium">
+                  <span>Total Discount</span>
+                  <span>-${appliedCoupons.reduce((sum, c) => sum + c.discountAmount, 0).toFixed(2)}</span>
+                </div>
+              </>
             )}
             <div className="flex justify-between text-gray-600">
               <span>Tax</span>
