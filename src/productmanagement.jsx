@@ -1,6 +1,6 @@
 import { set } from 'mongoose';
 import React, { useState, useEffect } from 'react';
-import { FiPlus, FiTrash2, FiEdit, FiTag } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit, FiTag, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 
 const ProductManagement = () => {
   const [products, setProducts] = useState([]);
@@ -21,6 +21,24 @@ const ProductManagement = () => {
   });
   const [newImageUrl, setNewImageUrl] = useState('');
   const [bulkImageUrls, setBulkImageUrls] = useState('');
+  const [showCustomizationOptions, setShowCustomizationOptions] = useState(false);
+  const [customizationOptions, setCustomizationOptions] = useState([]);
+  const [newCustomizationOption, setNewCustomizationOption] = useState({
+    name: '',
+    type: 'text',
+    required: false,
+    options: [],
+    priceAdjustment: 0,
+    description: '',
+    maxLength: null,
+    minLength: null,
+    default: ''
+  });
+  const [newOptionValue, setNewOptionValue] = useState({
+    value: '',
+    display: '',
+    priceAdjustment: 0
+  });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -112,6 +130,52 @@ const ProductManagement = () => {
     }
   };
 
+  const addCustomizationOption = () => {
+    if (!newCustomizationOption.name) return;
+    
+    setCustomizationOptions([...customizationOptions, newCustomizationOption]);
+    setNewCustomizationOption({
+      name: '',
+      type: 'text',
+      required: false,
+      options: [],
+      priceAdjustment: 0,
+      description: '',
+      maxLength: null,
+      minLength: null,
+      default: ''
+    });
+  };
+
+  const removeCustomizationOption = (index) => {
+    const updated = [...customizationOptions];
+    updated.splice(index, 1);
+    setCustomizationOptions(updated);
+  };
+
+  const addOptionValue = () => {
+    if (!newOptionValue.value) return;
+    
+    setNewCustomizationOption({
+      ...newCustomizationOption,
+      options: [...newCustomizationOption.options, newOptionValue]
+    });
+    setNewOptionValue({
+      value: '',
+      display: '',
+      priceAdjustment: 0
+    });
+  };
+
+  const removeOptionValue = (index) => {
+    const updated = [...newCustomizationOption.options];
+    updated.splice(index, 1);
+    setNewCustomizationOption({
+      ...newCustomizationOption,
+      options: updated
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -121,13 +185,20 @@ const ProductManagement = () => {
         ? `http://localhost:3000/admin/products/${currentProduct._id}`
         : 'http://localhost:3000/admin/products';
       
+      const productData = {
+        ...formData,
+        customizable: customizationOptions.length > 0,
+        customizationOptions: customizationOptions.length > 0 ? customizationOptions : undefined,
+        basePrice: formData.price
+      };
+      
       const response = await fetch(url, {
         method,
         headers: { 
           'Content-Type': 'application/json',
           'x-user-id': user
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(productData)
       });
       
       if (!response.ok) {
@@ -181,6 +252,8 @@ const ProductManagement = () => {
     setBulkImageUrls('');
     setCurrentProduct(null);
     setShowForm(false);
+    setCustomizationOptions([]);
+    setShowCustomizationOptions(false);
   };
 
   const editProduct = (product) => {
@@ -196,6 +269,7 @@ const ProductManagement = () => {
       images: product.images || [],
       isFeatured: product.isFeatured || false
     });
+    setCustomizationOptions(product.customizationOptions || []);
     setShowForm(true);
   };
 
@@ -390,6 +464,289 @@ const ProductManagement = () => {
                 />
                 <label className="text-sm font-medium text-gray-700">Featured Product</label>
               </div>
+            </div>
+
+            {showCustomizationOptions && (
+              <div className="md:col-span-2 border border-gray-200 rounded-lg p-4 mt-4">
+                <h3 className="font-medium text-lg mb-3">Customization Options</h3>
+                
+                {customizationOptions.length > 0 && (
+                  <div className="mb-4 space-y-3">
+                    {customizationOptions.map((option, index) => (
+                      <div key={index} className="border border-gray-200 rounded p-3">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <strong>{option.name}</strong> ({option.type})
+                            {option.required && <span className="text-red-500 ml-1">*</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeCustomizationOption(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <FiTrash2 />
+                          </button>
+                        </div>
+                        {option.description && <p className="text-sm text-gray-600">{option.description}</p>}
+                        {option.priceAdjustment !== 0 && (
+                          <p className="text-sm">Price adjustment: ${option.priceAdjustment.toFixed(2)}</p>
+                        )}
+                        {option.options.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-sm font-medium">Options:</p>
+                            <ul className="text-sm space-y-1">
+                              {option.options.map((opt, i) => (
+                                <li key={i}>
+                                  {opt.display || opt.value} 
+                                  {opt.priceAdjustment ? ` (+$${opt.priceAdjustment.toFixed(2)})` : ''}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Option Name*</label>
+                      <input
+                        type="text"
+                        value={newCustomizationOption.name}
+                        onChange={(e) => setNewCustomizationOption({
+                          ...newCustomizationOption,
+                          name: e.target.value
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type*</label>
+                      <select
+                        value={newCustomizationOption.type}
+                        onChange={(e) => setNewCustomizationOption({
+                          ...newCustomizationOption,
+                          type: e.target.value,
+                          options: e.target.value === 'dropdown' || e.target.value === 'color' || e.target.value === 'image' 
+                            ? newCustomizationOption.options 
+                            : []
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="text">Text</option>
+                        <option value="dropdown">Dropdown</option>
+                        <option value="checkbox">Checkbox</option>
+                        <option value="color">Color Picker</option>
+                        <option value="image">Image Selector</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newCustomizationOption.required}
+                        onChange={(e) => setNewCustomizationOption({
+                          ...newCustomizationOption,
+                          required: e.target.checked
+                        })}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <label className="ml-2 block text-sm text-gray-700">Required</label>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Price Adjustment</label>
+                      <input
+                        type="number"
+                        value={newCustomizationOption.priceAdjustment}
+                        onChange={(e) => setNewCustomizationOption({
+                          ...newCustomizationOption,
+                          priceAdjustment: parseFloat(e.target.value) || 0
+                        })}
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                      <input
+                        type="text"
+                        value={newCustomizationOption.description}
+                        onChange={(e) => setNewCustomizationOption({
+                          ...newCustomizationOption,
+                          description: e.target.value
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                  </div>
+                  
+                  {(newCustomizationOption.type === 'text') && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Min Length</label>
+                        <input
+                          type="number"
+                          value={newCustomizationOption.minLength || ''}
+                          onChange={(e) => setNewCustomizationOption({
+                            ...newCustomizationOption,
+                            minLength: e.target.value ? parseInt(e.target.value) : null
+                          })}
+                          min="0"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Max Length</label>
+                        <input
+                          type="number"
+                          value={newCustomizationOption.maxLength || ''}
+                          onChange={(e) => setNewCustomizationOption({
+                            ...newCustomizationOption,
+                            maxLength: e.target.value ? parseInt(e.target.value) : null
+                          })}
+                          min="1"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Default Value</label>
+                        <input
+                          type="text"
+                          value={newCustomizationOption.default}
+                          onChange={(e) => setNewCustomizationOption({
+                            ...newCustomizationOption,
+                            default: e.target.value
+                          })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {(newCustomizationOption.type === 'dropdown' || 
+                    newCustomizationOption.type === 'color' || 
+                    newCustomizationOption.type === 'image') && (
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-medium mb-3">Options</h4>
+                      
+                      {newCustomizationOption.options.length > 0 && (
+                        <div className="mb-4 space-y-2">
+                          {newCustomizationOption.options.map((option, index) => (
+                            <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                              <div>
+                                <span className="font-medium">{option.display || option.value}</span>
+                                {option.priceAdjustment !== 0 && (
+                                  <span className="ml-2 text-blue-600">
+                                    (+${option.priceAdjustment.toFixed(2)})
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeOptionValue(index)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                <FiTrash2 size={16} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Value*</label>
+                          <input
+                            type={newCustomizationOption.type === 'color' ? 'color' : 'text'}
+                            value={newOptionValue.value}
+                            onChange={(e) => setNewOptionValue({
+                              ...newOptionValue,
+                              value: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                          <input
+                            type="text"
+                            value={newOptionValue.display}
+                            onChange={(e) => setNewOptionValue({
+                              ...newOptionValue,
+                              display: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Price Adjustment</label>
+                          <input
+                            type="number"
+                            value={newOptionValue.priceAdjustment}
+                            onChange={(e) => setNewOptionValue({
+                              ...newOptionValue,
+                              priceAdjustment: parseFloat(e.target.value) || 0
+                            })}
+                            step="0.01"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          />
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={addOptionValue}
+                        disabled={!newOptionValue.value}
+                        className="mt-3 px-3 py-1 bg-blue-100 text-blue-700 rounded-md text-sm hover:bg-blue-200 disabled:opacity-50"
+                      >
+                        Add Option
+                      </button>
+                    </div>
+                  )}
+                  
+                  <button
+                    type="button"
+                    onClick={addCustomizationOption}
+                    disabled={!newCustomizationOption.name}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Add Customization Option
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Add this toggle button to your form (before the submit buttons) */}
+            <div className="md:col-span-2">
+              <button
+                type="button"
+                onClick={() => setShowCustomizationOptions(!showCustomizationOptions)}
+                className="flex items-center px-4 py-2 bg-gray-100 rounded-md hover:bg-gray-200"
+              >
+                {showCustomizationOptions ? (
+                  <>
+                    <FiChevronUp className="mr-1" /> Hide Customization Options
+                  </>
+                ) : (
+                  <>
+                    <FiChevronDown className="mr-1" /> Add Customization Options
+                  </>
+                )}
+              </button>
             </div>
             
             <div className="flex justify-end space-x-3 pt-4">

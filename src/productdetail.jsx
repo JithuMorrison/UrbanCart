@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { FiStar, FiShoppingCart, FiHeart, FiShare2, FiChevronLeft } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
+import ProductCustomizationModal from './productcustomizationmodel';
 
 const ProductDetail = () => {
   const { productId } = useParams();
@@ -13,14 +14,14 @@ const ProductDetail = () => {
   const [relatedProducts, setRelatedProducts] = useState([]);
   const [user, setUser] = useState(null);
   const userId = localStorage.getItem('userId');
-
-  // Check if product is in wishlist
-  const [isWishlisted,setIsWishlisted] = useState(false);
+  const [isWishlisted, setIsWishlisted] = useState(false);
+  const [showCustomizationModal, setShowCustomizationModal] = useState(false);
+  const [customizations, setCustomizations] = useState([]);
+  const [customPrice, setCustomPrice] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch product and related products first
         const [productRes, relatedRes] = await Promise.all([
           fetch(`http://localhost:3000/products/${productId}`),
           fetch(`http://localhost:3000/products/related/${productId}`)
@@ -33,8 +34,8 @@ const ProductDetail = () => {
         
         setProduct(productData);
         setRelatedProducts(relatedData);
+        setCustomPrice(productData.price);
 
-        // Then fetch user data if logged in
         if (userId) {
           const userRes = await fetch(`http://localhost:3000/user/${userId}`);
           const userData = await userRes.json();
@@ -52,9 +53,8 @@ const ProductDetail = () => {
     fetchData();
   }, [productId, userId]);
 
-  const addToCart = async () => {
+  const addToCart = async (cartItem) => {
     if (!userId) {
-      // Redirect to login or show login modal
       alert('Please login to add items to cart');
       return;
     }
@@ -63,7 +63,7 @@ const ProductDetail = () => {
       const response = await fetch(`http://localhost:3000/user/${userId}/cart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, quantity })
+        body: JSON.stringify(cartItem)
       });
 
       if (!response.ok) throw new Error('Failed to add to cart');
@@ -75,6 +75,22 @@ const ProductDetail = () => {
     }
   };
 
+  const handleAddToCart = async () => {
+    if (product.customizable) {
+      setShowCustomizationModal(true);
+    } else {
+      await addToCart({
+        productId: product._id,
+        quantity
+      });
+    }
+  };
+
+  const handleCustomizedAddToCart = async (customizationData) => {
+    await addToCart(customizationData);
+    setShowCustomizationModal(false);
+  };
+
   const toggleWishlist = async () => {
     if (!userId) {
       alert('Please login to manage your wishlist');
@@ -83,21 +99,18 @@ const ProductDetail = () => {
     
     try {
       if (isWishlisted) {
-        // Remove from wishlist
         const response = await fetch(`http://localhost:3000/user/${userId}/wishlist/${productId}`, {
           method: 'DELETE'
         });
 
         if (!response.ok) throw new Error('Failed to remove from wishlist');
 
-        // Update local user state
         setUser(prev => ({
           ...prev,
           wishlist: prev.wishlist.filter(id => id.toString() !== productId)
         }));
         alert('Product removed from wishlist');
       } else {
-        // Add to wishlist
         const response = await fetch(`http://localhost:3000/user/${userId}/wishlist`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -106,7 +119,6 @@ const ProductDetail = () => {
 
         if (!response.ok) throw new Error('Failed to add to wishlist');
 
-        // Update local user state
         setUser(prev => ({
           ...prev,
           wishlist: [...prev.wishlist, productId]
@@ -140,6 +152,15 @@ const ProductDetail = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {showCustomizationModal && (
+        <ProductCustomizationModal
+          product={product}
+          onClose={() => setShowCustomizationModal(false)}
+          onAddToCart={handleCustomizedAddToCart}
+          initialQuantity={quantity}
+        />
+      )}
+      
       <button 
         onClick={() => window.history.back()}
         className="flex items-center text-blue-600 hover:text-blue-800 mb-4"
@@ -193,10 +214,15 @@ const ProductDetail = () => {
                 Featured
               </span>
             )}
+            {product.customizable && (
+              <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                Customizable
+              </span>
+            )}
           </div>
           
           <div className="mb-6">
-            <span className="text-2xl font-bold">${product.price.toFixed(2)}</span>
+            <span className="text-2xl font-bold">${customPrice.toFixed(2)}</span>
             {product.discount > 0 && (
               <span className="ml-2 text-gray-500 line-through">
                 ${(product.price * (1 + product.discount/100)).toFixed(2)}
@@ -225,6 +251,9 @@ const ProductDetail = () => {
               {product.quantity > 0 && product.quantity < 10 && (
                 <li className="text-yellow-600">Only {product.quantity} left!</li>
               )}
+              {product.customizable && (
+                <li className="text-blue-600">This product can be customized</li>
+              )}
             </ul>
           </div>
           
@@ -246,14 +275,14 @@ const ProductDetail = () => {
             </div>
             
             <button 
-              onClick={addToCart}
+              onClick={handleAddToCart}
               disabled={product.quantity <= 0}
               className={`flex-1 py-2 rounded-lg flex items-center justify-center ${
                 product.quantity <= 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
               }`}
             >
               <FiShoppingCart className="mr-2" />
-              Add to Cart
+              {product.customizable ? 'Customize & Add to Cart' : 'Add to Cart'}
             </button>
           </div>
           

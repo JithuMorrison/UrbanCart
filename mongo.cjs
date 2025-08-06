@@ -46,7 +46,14 @@ const orderItemSchema = new mongoose.Schema({
     rating: { type: Number, min: 1, max: 5 },
     comment: String,
     reviewedAt: Date
-  }
+  },
+  customizations: [{
+    name: String,
+    type: String,
+    value: mongoose.Schema.Types.Mixed,
+    priceAdjustment: Number
+  }],
+  customPrice: Number
 });
 
 const addressSchema = new mongoose.Schema({
@@ -127,7 +134,14 @@ const userSchema = new mongoose.Schema({
   cart: [{
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     quantity: { type: Number, default: 1 },
-    addedAt: { type: Date, default: Date.now }
+    addedAt: { type: Date, default: Date.now },
+    customizations: [{
+      name: String,
+      type: String,
+      value: mongoose.Schema.Types.Mixed,
+      priceAdjustment: Number
+    }],
+    customPrice: Number // Final price after customizations
   }],
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   lastLogin: Date,
@@ -142,6 +156,26 @@ const userSchema = new mongoose.Schema({
   firstOrderDiscountUsed: { type: Boolean, default: false },
   referralCode: String,
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+});
+
+const customizationOptionSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  type: { 
+    type: String, 
+    enum: ['text', 'image', 'color', 'dropdown', 'checkbox'], 
+    required: true 
+  },
+  required: { type: Boolean, default: false },
+  options: [{
+    value: String,
+    display: String,
+    priceAdjustment: { type: Number, default: 0 }
+  }],
+  priceAdjustment: { type: Number, default: 0 },
+  description: String,
+  maxLength: Number,
+  minLength: Number,
+  default: String
 });
 
 const productSchema = new mongoose.Schema({
@@ -163,7 +197,10 @@ const productSchema = new mongoose.Schema({
   averageRating: { type: Number, default: 0 },
   isFeatured: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  customizable: { type: Boolean, default: false },
+  customizationOptions: [customizationOptionSchema],
+  basePrice: { type: Number },
 });
 
 const analyticsSchema = new mongoose.Schema({
@@ -631,73 +668,94 @@ app.get('/user/:userId/cart', async (req, res) => {
 
 app.post('/user/:userId/cart', async (req, res) => {
   try {
-    const { action, productId, quantity, clearAll } = req.body;
-    const user = await User.findById(req.params.userId);
-    
+    const { action, productId, quantity, clearAll, customizations } = req.body;
+    const user = await User.findById(req.params.userId).populate('cart.productId');
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (action === 'update') {
-      // Handle quantity update
-      const cartItem = user.cart.find(item => 
-        item.productId.toString() === productId
+    if (clearAll) {
+      // Clear the entire cart
+      user.cart = [];
+    } else if (action === 'update') {
+      const index = user.cart.findIndex(item =>
+        item.productId._id.toString() === productId &&
+        JSON.stringify(item.customizations || []) === JSON.stringify(customizations || [])
       );
-      
-      if (!cartItem) {
+
+      if (index === -1) {
         return res.status(404).json({ message: 'Item not found in cart' });
       }
-      
-      cartItem.quantity = quantity;
-    } 
-    else if (action === 'remove') {
-      // Handle item removal
-      user.cart = user.cart.filter(item => 
-        item.productId.toString() !== productId
+
+      user.cart[index].quantity = quantity;
+    } else if (action === 'remove') {
+      user.cart = user.cart.filter(item =>
+        !(item.productId._id.toString() === productId &&
+        JSON.stringify(item.customizations || []) === JSON.stringify(customizations || []))
       );
-    }
-    else if (clearAll) {
-      // Handle clear cart
-      user.cart = [];
-    }
-    else {
-      // Default action (add item)
+    } else {
       const product = await Product.findById(productId);
       if (!product) {
         return res.status(404).json({ message: 'Product not found' });
       }
-      
-      const existingItem = user.cart.find(item => 
-        item.productId.toString() === productId
+
+      // Handle customizations
+      let customPrice = product.price;
+      let validatedCustomizations = [];
+
+      if (product.customizable && customizations) {
+        const validationResponse = await fetch(`http://localhost:3000/products/${productId}/validate-customization`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customizations })
+        });
+
+        const validationData = await validationResponse.json();
+
+        if (!validationData.valid) {
+          return res.status(400).json({ message: validationData.message });
+        }
+
+        validatedCustomizations = validationData.customizations;
+        customPrice = validationData.finalPrice;
+      }
+
+      const existingItemIndex = user.cart.findIndex(item =>
+        item.productId._id.toString() === productId &&
+        JSON.stringify(item.customizations || []) === JSON.stringify(validatedCustomizations)
       );
-      
-      if (existingItem) {
-        existingItem.quantity += quantity || 1;
+
+      if (existingItemIndex >= 0) {
+        user.cart[existingItemIndex].quantity += quantity || 1;
       } else {
         user.cart.push({
           productId,
           quantity: quantity || 1,
+          customizations: validatedCustomizations,
+          customPrice,
           addedAt: new Date()
         });
       }
     }
-    
+
     await user.save();
-    
+
     // Return updated cart
     const updatedUser = await User.findById(req.params.userId)
       .populate('cart.productId', 'productName price images discount');
-    
+
     const cartItems = updatedUser.cart.map(item => ({
       id: item.productId._id,
       quantity: item.quantity,
       name: item.productId.productName,
-      price: item.productId.price,
-      priceAfterDiscount: item.productId.price * (1 - (item.productId.discount / 100)),
+      basePrice: item.productId.price,
+      priceAfterDiscount: item.customPrice || item.productId.price * (1 - (item.productId.discount / 100)),
       discount: item.productId.discount,
-      image: item.productId.images[0] || 'https://via.placeholder.com/150'
+      image: item.productId.images[0] || 'https://via.placeholder.com/150',
+      customizations: item.customizations || []
     }));
-    
+
     res.json(cartItems);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1227,6 +1285,131 @@ app.get('/products/categories', async (req, res) => {
   try {
     const categories = await Product.distinct('category');
     res.json(categories);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get('/products/:id/customizations', async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id)
+      .select('customizable customizationOptions price');
+    
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    
+    res.json({
+      customizable: product.customizable,
+      options: product.customizationOptions,
+      basePrice: product.price
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Validate customization (for checkout)
+app.post('/products/:id/validate-customization', async (req, res) => {
+  try {
+    const { customizations } = req.body;
+    const product = await Product.findById(req.params.id);
+    
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    
+    if (!product.customizable) {
+      return res.status(400).json({ message: 'Product is not customizable' });
+    }
+    
+    // Validate each customization
+    let totalPriceAdjustment = 0;
+    const validatedCustomizations = [];
+    
+    for (const option of product.customizationOptions) {
+      const customization = customizations.find(c => c.name === option.name);
+      
+      if (!customization && option.required) {
+        return res.status(400).json({ 
+          message: `Customization '${option.name}' is required` 
+        });
+      }
+      
+      if (customization) {
+        // Validate based on type
+        switch (option.type) {
+          case 'text':
+            if (typeof customization.value !== 'string') {
+              return res.status(400).json({ 
+                message: `Customization '${option.name}' must be text` 
+              });
+            }
+            if (option.minLength && customization.value.length < option.minLength) {
+              return res.status(400).json({ 
+                message: `Customization '${option.name}' must be at least ${option.minLength} characters` 
+              });
+            }
+            if (option.maxLength && customization.value.length > option.maxLength) {
+              return res.status(400).json({ 
+                message: `Customization '${option.name}' must be at most ${option.maxLength} characters` 
+              });
+            }
+            break;
+            
+          case 'dropdown':
+            if (!option.options.some(opt => opt.value === customization.value)) {
+              return res.status(400).json({ 
+                message: `Invalid option for '${option.name}'` 
+              });
+            }
+            break;
+            
+          case 'checkbox':
+            if (typeof customization.value !== 'boolean') {
+              return res.status(400).json({ 
+                message: `Customization '${option.name}' must be true/false` 
+              });
+            }
+            break;
+            
+          case 'color':
+          case 'image':
+            // Basic validation - could add more specific checks
+            if (typeof customization.value !== 'string') {
+              return res.status(400).json({ 
+                message: `Invalid value for '${option.name}'` 
+              });
+            }
+            break;
+        }
+        
+        // Calculate price adjustment
+        let adjustment = option.priceAdjustment || 0;
+        
+        if (option.type === 'dropdown') {
+          const selectedOption = option.options.find(opt => opt.value === customization.value);
+          if (selectedOption && selectedOption.priceAdjustment) {
+            adjustment += selectedOption.priceAdjustment;
+          }
+        }
+        
+        totalPriceAdjustment += adjustment;
+        validatedCustomizations.push({
+          name: option.name,
+          type: option.type,
+          value: customization.value,
+          priceAdjustment: adjustment
+        });
+      }
+    }
+    
+    res.json({
+      valid: true,
+      customizations: validatedCustomizations,
+      totalPriceAdjustment,
+      finalPrice: product.price + totalPriceAdjustment
+    });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
