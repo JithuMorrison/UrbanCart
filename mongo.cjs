@@ -668,75 +668,112 @@ app.get('/user/:userId/cart', async (req, res) => {
 
 app.post('/user/:userId/cart', async (req, res) => {
   try {
-    const { action, productId, quantity, clearAll, customizations } = req.body;
+    const { productId, quantity, customizations, customPrice } = req.body;
     const user = await User.findById(req.params.userId).populate('cart.productId');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (clearAll) {
-      // Clear the entire cart
-      user.cart = [];
-    } else if (action === 'update') {
-      const index = user.cart.findIndex(item =>
-        item.productId._id.toString() === productId &&
-        JSON.stringify(item.customizations || []) === JSON.stringify(customizations || [])
-      );
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
 
-      if (index === -1) {
-        return res.status(404).json({ message: 'Item not found in cart' });
-      }
+    // Handle customizations
+    let finalPrice = product.price;
+    let validatedCustomizations = [];
 
-      user.cart[index].quantity = quantity;
-    } else if (action === 'remove') {
-      user.cart = user.cart.filter(item =>
-        !(item.productId._id.toString() === productId &&
-        JSON.stringify(item.customizations || []) === JSON.stringify(customizations || []))
-      );
-    } else {
-      const product = await Product.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: 'Product not found' });
-      }
-
-      // Handle customizations
-      let customPrice = product.price;
-      let validatedCustomizations = [];
-
-      if (product.customizable && customizations) {
-        const validationResponse = await fetch(`http://localhost:3000/products/${productId}/validate-customization`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customizations })
-        });
-
-        const validationData = await validationResponse.json();
-
-        if (!validationData.valid) {
-          return res.status(400).json({ message: validationData.message });
+    if (product.customizable && customizations && customizations.length > 0) {
+      // Validate customizations against product options
+      const productOptions = product.customizationOptions || [];
+      
+      validatedCustomizations = customizations.map(custom => {
+        const option = productOptions.find(opt => opt.name === custom.name);
+        if (!option) {
+          throw new Error(`Invalid customization option: ${custom.name}`);
         }
 
-        validatedCustomizations = validationData.customizations;
-        customPrice = validationData.finalPrice;
-      }
+        // Validate value based on type
+        switch (option.type) {
+          case 'dropdown':
+            if (!option.options.some(opt => opt.value === custom.value)) {
+              throw new Error(`Invalid value for ${custom.name}`);
+            }
+            break;
+          case 'checkbox':
+            if (typeof custom.value !== 'boolean') {
+              throw new Error(`${custom.name} must be true/false`);
+            }
+            break;
+          // Add validation for other types as needed
+        }
 
-      const existingItemIndex = user.cart.findIndex(item =>
-        item.productId._id.toString() === productId &&
-        JSON.stringify(item.customizations || []) === JSON.stringify(validatedCustomizations)
+        // Calculate price adjustment
+        let adjustment = option.priceAdjustment || 0;
+        if (option.type === 'dropdown') {
+          const selected = option.options.find(opt => opt.value === custom.value);
+          adjustment += selected?.priceAdjustment || 0;
+        }
+
+        return {
+          name: custom.name,
+          type: option.type,
+          value: custom.value,
+          priceAdjustment: adjustment
+        };
+      });
+
+      // Calculate final price
+      const totalAdjustment = validatedCustomizations.reduce(
+        (sum, c) => sum + c.priceAdjustment, 0
       );
-
-      if (existingItemIndex >= 0) {
-        user.cart[existingItemIndex].quantity += quantity || 1;
-      } else {
-        user.cart.push({
-          productId,
-          quantity: quantity || 1,
-          customizations: validatedCustomizations,
-          customPrice,
-          addedAt: new Date()
-        });
+      finalPrice = product.price + totalAdjustment;
+      
+      // Use provided customPrice if it matches our calculation (with small tolerance)
+      if (customPrice && Math.abs(customPrice - finalPrice) > 0.01) {
+        console.warn(`Custom price ${customPrice} doesn't match calculated price ${finalPrice}`);
       }
+    }
+
+    // Check if identical item already in cart
+    const existingIndex = user.cart.findIndex(item => {
+      // Compare product IDs
+      if (item.productId._id.toString() !== productId.toString()) return false;
+      
+      // Compare customizations if they exist
+      const itemCustoms = item.customizations || [];
+      const newCustoms = validatedCustomizations || [];
+      
+      if (itemCustoms.length !== newCustoms.length) return false;
+      
+      // Deep compare customizations
+      const customMatch = itemCustoms.every((cust, i) => 
+        cust.name === newCustoms[i].name && 
+        cust.value.toString() === newCustoms[i].value.toString()
+      );
+      
+      return customMatch;
+    });
+
+    if (existingIndex >= 0) {
+      // Update quantity if exists
+      user.cart[existingIndex].quantity += quantity || 1;
+    } else {
+      // Add new item - ensure customizations is an array of objects, not a string
+      const newCartItem = {
+        productId,
+        quantity: quantity || 1,
+        addedAt: new Date()
+      };
+
+      // Only add customizations if they exist
+      if (validatedCustomizations.length > 0) {
+        newCartItem.customizations = validatedCustomizations;
+        newCartItem.customPrice = finalPrice;
+      }
+
+      user.cart.push(newCartItem);
     }
 
     await user.save();
@@ -758,7 +795,11 @@ app.post('/user/:userId/cart', async (req, res) => {
 
     res.json(cartItems);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('Error adding to cart:', err);
+    res.status(400).json({ 
+      message: err.message || 'Failed to add to cart',
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 

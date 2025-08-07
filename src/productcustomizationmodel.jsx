@@ -15,8 +15,8 @@ const ProductCustomizationModal = ({
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Initialize customizations from product options
-    if (product.customizationOptions) {
+    // Only initialize if we have customization options and haven't already initialized
+    if (product.customizationOptions && customizations.length === 0) {
       const initialized = product.customizationOptions.map(option => {
         const existing = initialCustomizations.find(c => c.name === option.name);
         return {
@@ -30,8 +30,14 @@ const ProductCustomizationModal = ({
         };
       });
       setCustomizations(initialized);
+      
+      // Calculate initial price
+      const initialAdjustment = initialized.reduce((sum, c) => {
+        return sum + (c.priceAdjustment || 0) + (c.optionData.priceAdjustment || 0);
+      }, 0);
+      setPrice(product.price + initialAdjustment);
     }
-  }, [product, initialCustomizations]);
+  }, [product, initialCustomizations]); // Only re-run when these change
 
   const handleCustomizationChange = (index, value) => {
     const updated = [...customizations];
@@ -79,7 +85,6 @@ const ProductCustomizationModal = ({
         .filter(c => c.value !== '')
         .map(c => ({
           name: c.name,
-          type: c.type,
           value: c.value,
           priceAdjustment: c.priceAdjustment
         }));

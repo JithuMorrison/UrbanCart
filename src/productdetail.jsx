@@ -63,15 +63,24 @@ const ProductDetail = () => {
       const response = await fetch(`http://localhost:3000/user/${userId}/cart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cartItem)
+        body: JSON.stringify({
+          productId: cartItem.productId,
+          quantity: cartItem.quantity,
+          customizations: Array.isArray(cartItem.customizations) ? cartItem.customizations : [],
+          customPrice: cartItem.customPrice
+        })
       });
 
-      if (!response.ok) throw new Error('Failed to add to cart');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to add to cart');
+      }
       
-      alert('Product added to cart successfully');
+      const data = await response.json();
+      return data;
     } catch (err) {
       console.error('Error adding to cart:', err);
-      alert('Failed to add product to cart');
+      throw err;
     }
   };
 
@@ -87,8 +96,17 @@ const ProductDetail = () => {
   };
 
   const handleCustomizedAddToCart = async (customizationData) => {
-    await addToCart(customizationData);
-    setShowCustomizationModal(false);
+    try {
+      await addToCart({
+        productId: product._id,
+        quantity: customizationData.quantity,
+        customizations: customizationData.customizations,
+        customPrice: customizationData.customPrice
+      });
+      setShowCustomizationModal(false);
+    } catch (err) {
+      console.error('Error adding customized product:', err);
+    }
   };
 
   const toggleWishlist = async () => {
