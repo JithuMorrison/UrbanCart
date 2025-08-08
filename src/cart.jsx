@@ -73,11 +73,15 @@ const Cart = () => {
               id: item.id,
               quantitybuy: item.quantity,
               priceAfterDiscount: calculatePriceAfterDiscount(product.price, product.discount || 0),
+              customizations: item.customizations || [],
+              customPrice: item.customPrice || product.price,
               ...product
             };
           })
         );
         
+        console.log('Fetched cart:', productsWithDetails);
+
         setCart(productsWithDetails);
       } catch (error) {
         console.error('Error fetching cart:', error);
@@ -486,13 +490,16 @@ const applyCoupon = async (coupon) => {
     setIsProcessing(true);
     
     try {
+      console.log(cart);
       const order = {
         items: cart.map(item => ({
           productId: item.id,
-          productName: item.name,
+          productName: item.productName,
           quantityOrdered: item.quantitybuy,
           price: parseFloat(item.priceAfterDiscount),
-          image: item.images?.[0] || 'https://via.placeholder.com/150'
+          image: item.images?.[0] || 'https://via.placeholder.com/150',
+          customizations: item.customizations || [],
+          customPrice: item.customPrice || 0
         })),
         shippingAddress: {
           street: formData.address,

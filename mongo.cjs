@@ -104,6 +104,7 @@ const orderSchema = new mongoose.Schema({
   tax: { type: Number, default: 0 },
   discount: { type: Number, default: 0 },
   total: { type: Number, required: true },
+  appliedCoupons: [{type: String}],
   status: { 
     type: String, 
     enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'],
@@ -674,6 +675,8 @@ app.get('/user/:userId/cart', async (req, res) => {
       price: item.productId.price,
       priceAfterDiscount: item.productId.price * (1 - (item.productId.discount / 100)),
       discount: item.productId.discount,
+      customizations: item.customizations || [],
+      customPrice: item.customPrice || item.productId.price,
       image: item.productId.images[0] || 'https://via.placeholder.com/150'
     }));
     
@@ -1559,7 +1562,7 @@ app.post('/user/:userId/order', async (req, res) => {
   try {
     console.log('Incoming order data:', req.body);
     const userId = req.params.userId;
-    const { items, shippingAddress, paymentMethod, couponCode } = req.body;
+    const { items, shippingAddress, paymentMethod, appliedCoupons, subtotal, tax, discountAmount, total, status } = req.body;
 
     // Validate required fields
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1572,68 +1575,12 @@ app.post('/user/:userId/order', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Validate products and calculate totals
-    let subtotal = 0;
-    const validatedItems = [];
-
-    for (const item of items) {
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        return res.status(400).json({ message: `Product ${item.productId} not found` });
-      }
-
-      if (product.quantity < item.quantityOrdered) {
-        return res.status(400).json({ 
-          message: `Not enough stock for ${product.productName}`,
-          available: product.quantity
-        });
-      }
-
-      const itemTotal = item.price * item.quantityOrdered;
-      subtotal += itemTotal;
-
-      validatedItems.push({
-        productId: product._id,
-        productName: product.productName,
-        quantityOrdered: item.quantityOrdered,
-        price: item.price,
-        image: item.image || product.images[0] || 'https://via.placeholder.com/150'
-      });
-    }
-
-    // Validate and apply coupon if provided
-    let discountAmount = 0;
-    let appliedCoupon = null;
-    
-    if (couponCode) {
-      const couponResponse = await fetch(`http://localhost:3000/user/${userId}/apply-coupon`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          couponCode,
-          cartItems: items
-        })
-      });
-      
-      const couponData = await couponResponse.json();
-      
-      if (!couponData.success) {
-        return res.status(400).json({ message: couponData.message });
-      }
-      
-      discountAmount = couponData.coupon.discountAmount;
-      appliedCoupon = couponData.coupon.code;
-    }
-
-    // Calculate tax and total
-    const tax = subtotal * 0.1;
     const shippingFee = subtotal > 50 ? 0 : 5.99;
-    const total = subtotal - discountAmount + tax + shippingFee;
 
     // Create the order
     const order = new Order({
       userId,
-      items: validatedItems,
+      items: items,
       shippingAddress,
       paymentMethod,
       subtotal,
@@ -1641,14 +1588,14 @@ app.post('/user/:userId/order', async (req, res) => {
       tax,
       discount: discountAmount,
       total,
-      appliedCoupon,
+      appliedCoupons,
       status: 'processing'
     });
 
     await order.save();
 
     // Update product quantities
-    for (const item of validatedItems) {
+    for (const item of items) {
       await Product.findByIdAndUpdate(item.productId, {
         $inc: { quantity: -item.quantityOrdered }
       });
@@ -1659,14 +1606,26 @@ app.post('/user/:userId/order', async (req, res) => {
     user.orders.push(order._id);
     
     // Mark coupon as used if single-use
-    if (appliedCoupon) {
-      const coupon = await Discount.findOne({ code: appliedCoupon });
-      if (coupon?.singleUse) {
-        const userCoupon = user.coupons.find(c => c.code === appliedCoupon);
-        if (userCoupon) {
-          userCoupon.used = true;
-        }
+    if (appliedCoupons.length > 0) {
+      // Fetch all matching single-use coupons in one query
+      const coupons = await Discount.find({
+        code: { $in: appliedCoupons },
+        singleUse: true
+      });
+
+      // Create a quick lookup for single-use coupon codes
+      const singleUseCodes = new Set(coupons.map(c => c.code));
+
+      // Mark matching user coupons as used
+      if (Array.isArray(user.coupons)) {
+        user.coupons.forEach(c => {
+          if (singleUseCodes.has(c.code)) {
+            c.used = true;
+          }
+        });
       }
+
+      await user.save(); // persist the updates
     }
     
     await user.save();
