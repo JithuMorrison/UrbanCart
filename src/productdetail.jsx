@@ -62,11 +62,19 @@ const ProductDetail = () => {
     try {
       const response = await fetch(`http://localhost:3000/user/${userId}/cart`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           productId: cartItem.productId,
           quantity: cartItem.quantity,
-          customizations: Array.isArray(cartItem.customizations) ? cartItem.customizations : [],
+          customizations: Array.isArray(cartItem.customizations) ? 
+            cartItem.customizations.map(c => ({
+              name: c.name,
+              type: c.type,
+              value: c.value,
+              priceAdjustment: c.priceAdjustment || 0
+            })) : [],
           customPrice: cartItem.customPrice
         })
       });
@@ -76,8 +84,7 @@ const ProductDetail = () => {
         throw new Error(errorData.message || 'Failed to add to cart');
       }
       
-      const data = await response.json();
-      return data;
+      return await response.json();
     } catch (err) {
       console.error('Error adding to cart:', err);
       throw err;

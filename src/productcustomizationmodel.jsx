@@ -82,11 +82,12 @@ const ProductCustomizationModal = ({
       
       // Prepare customizations for API
       const apiCustomizations = customizations
-        .filter(c => c.value !== '')
+        .filter(c => c.value !== '' && c.value !== false) // Include false for checkboxes
         .map(c => ({
           name: c.name,
+          type: c.type,
           value: c.value,
-          priceAdjustment: c.priceAdjustment
+          priceAdjustment: c.priceAdjustment || 0
         }));
       
       // Call parent handler

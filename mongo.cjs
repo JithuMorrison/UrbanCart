@@ -350,18 +350,19 @@ app.post('/user/register', async (req, res) => {
         
         // Find or create referral discount
         const referralDiscount = await Discount.findOneAndUpdate(
-          { code: 'REFERRAL10', autoApply: true },
+          { code: 'WELCOME10', autoApply: true, userGroups: 'new-user' },
           { 
             $setOnInsert: {
               type: 'percentage',
               value: 10,
-              description: 'Referral bonus - 10% off',
+              description: '10% off your first order',
               validFrom: new Date(),
-              validUntil: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-              maxUses: 1000,
-              isActive: true
+              validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+              maxUses: 1000, // 👈 THIS is the problem
+              isActive: true,
+              minimumPurchaseAmount: 20
             },
-            $inc: { maxUses: 1 }
+            $inc: { maxUses: 1 } // 👈 And this too
           },
           { new: true, upsert: true }
         );
