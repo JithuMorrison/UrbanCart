@@ -327,14 +327,22 @@ app.post('/user/register', async (req, res) => {
           description: '10% off your first order',
           validFrom: new Date(),
           validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-          maxUses: 1000,
+          maxUses: 1000,  // Initial value when creating
           isActive: true,
           minimumPurchaseAmount: 20
-        },
-        $inc: { maxUses: 1 } // Increment max uses to account for new user
+        }
       },
       { new: true, upsert: true }
     );
+    
+    // Increment maxUses separately if the document already exists
+    if (!welcomeCoupon.$isNew) {
+      await Discount.updateOne(
+        { _id: welcomeCoupon._id },
+        { $inc: { maxUses: 1 } }
+      );
+      welcomeCoupon.maxUses += 1;
+    }
     
     // Add to user's coupons
     newUser.coupons.push({
@@ -350,22 +358,30 @@ app.post('/user/register', async (req, res) => {
         
         // Find or create referral discount
         const referralDiscount = await Discount.findOneAndUpdate(
-          { code: 'WELCOME10', autoApply: true, userGroups: 'new-user' },
+          { code: 'REFERRAL10', autoApply: true, userGroups: 'referral' }, // Changed code to avoid conflict with welcome coupon
           { 
             $setOnInsert: {
               type: 'percentage',
               value: 10,
-              description: '10% off your first order',
+              description: '10% off from referral',
               validFrom: new Date(),
               validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-              maxUses: 1000, // 👈 THIS is the problem
+              maxUses: 1000, // Initial value
               isActive: true,
               minimumPurchaseAmount: 20
-            },
-            $inc: { maxUses: 1 } // 👈 And this too
+            }
           },
           { new: true, upsert: true }
         );
+        
+        // Increment maxUses separately if the document already exists
+        if (!referralDiscount.$isNew) {
+          await Discount.updateOne(
+            { _id: referralDiscount._id },
+            { $inc: { maxUses: 1 } }
+          );
+          referralDiscount.maxUses += 1;
+        }
         
         // Add referral coupon to new user
         newUser.coupons.push({
