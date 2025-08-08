@@ -49,7 +49,7 @@ const orderItemSchema = new mongoose.Schema({
   },
   customizations: [{
     name: String,
-    type: String,
+    type: {type: String},
     value: mongoose.Schema.Types.Mixed,
     priceAdjustment: Number
   }],
@@ -137,7 +137,7 @@ const userSchema = new mongoose.Schema({
     addedAt: { type: Date, default: Date.now },
     customizations: [{
       name: String,
-      type: String,
+      type: { type: String },
       value: mongoose.Schema.Types.Mixed,
       priceAdjustment: Number
     }],
